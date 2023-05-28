@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::string::ToString;
 
 use anyhow::Result;
-use axum::http::{HeaderMap, HeaderName};
+use axum::http::HeaderMap;
 use hmac::Hmac;
 use hmac::Mac;
 use sha2::Sha256;
