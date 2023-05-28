@@ -4,14 +4,13 @@ use std::str;
 
 use anyhow::{anyhow, Result};
 use hmac::{Hmac, Mac};
+use hyper::HeaderMap;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, OffsetDateTime};
 use url::Url;
 
-use axum::http::HeaderMap;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-
-const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
+pub const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]T[hour][minute][second]Z");
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
@@ -54,13 +53,15 @@ const FRAGMENT: &AsciiSet = &CONTROLS
 
 const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
 
-const X_ALGORITHM: &str = "X-Sup-Algorithm";
+pub const X_ALGORITHM: &str = "X-Sup-Algorithm";
 const ALGORITHM: &str = "SUP1-HMAC-SHA256";
-const X_CREDENTIAL: &str = "X-Sup-Credential";
-const X_DATE: &str = "X-Sup-Date";
-const X_EXPIRES: &str = "X-Sup-Expires";
-const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
+pub const X_CREDENTIAL: &str = "X-Sup-Credential";
+pub const X_DATE: &str = "X-Sup-Date";
+pub const X_EXPIRES: &str = "X-Sup-Expires";
+pub const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
+pub const X_SIGNED_BODY: &str = "X-Sup-Body";
 pub const X_PROXY: &str = "X-Sup-Proxy";
+pub const X_SIGNATURE: &str = "X-Sup-Signature";
 pub const HOST: &str = "Host";
 
 pub fn canonical_uri_string(uri: &Url) -> String {
@@ -143,6 +144,7 @@ pub fn authorization_query_params_no_sig(
     expires: u32,
     proxy_url: &Url,
     custom_headers: Option<&HeaderMap>,
+    sign_body: bool,
 ) -> Result<String> {
     let credentials = format!("{}/{}", access_key, scope_string(datetime));
 
@@ -166,6 +168,7 @@ pub fn authorization_query_params_no_sig(
     let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
     let proxy_url = utf8_percent_encode(&proxy_url, FRAGMENT_SLASH);
     let long_date = datetime.format(LONG_DATETIME).unwrap();
+    let mut sign_body = if sign_body { "true" } else { "false" };
 
     Ok(format!(
         "?{X_ALGORITHM}={ALGORITHM}\
@@ -173,7 +176,8 @@ pub fn authorization_query_params_no_sig(
             &{X_DATE}={long_date}\
             &{X_EXPIRES}={expires}\
             &{X_PROXY}={proxy_url}\
-            &{X_SIGNED_HEADERS}={signed_headers}",
+            &{X_SIGNED_HEADERS}={signed_headers}\
+            &{X_SIGNED_BODY}={sign_body}",
     ))
 }
 

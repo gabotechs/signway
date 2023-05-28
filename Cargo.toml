@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.6.18"
+hyper = { version = "0.14.26", features = ["full"] }
 tokio = { version = "1.28.1", features = ["full"] }
 url = "2.3.1"
 anyhow = "1.0.71"
@@ -15,5 +15,7 @@ serde_json = "1.0.96"
 hex = "0.4.3"
 hmac = "0.12.1"
 sha2 = "0.10.6"
-time = { version = "0.3.6", features = ["formatting", "macros"] }
+time = { version = "0.3.6", features = ["formatting", "macros", "parsing"] }
 percent-encoding = "2.2.0"
+lazy_static = "1.4.0"
+futures = "0.3.28" # remove
