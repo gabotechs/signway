@@ -17,8 +17,7 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct Signer {
     id: String,
     secret: String,
-    host: String,
-    extend_headers: Option<HeaderMap>,
+    host: Url,
 }
 
 pub struct SignRequest {
@@ -34,30 +33,18 @@ pub struct SignRequest {
 const X_SIGNATURE: &str = "X-Sup-Signature";
 
 impl Signer {
-    pub fn new(id: &str, secret: &str, host: &str) -> Self {
-        Self {
+    pub fn new(id: &str, secret: &str, host: &str) -> Result<Self> {
+        Ok(Self {
             id: id.to_string(),
             secret: secret.to_string(),
-            host: host.to_string(),
-            extend_headers: None,
-        }
-    }
-
-    fn extend_header(mut self, k: &str, v: &str) -> Result<Self> {
-        if let Some(extend_headers) = self.extend_headers.as_mut() {
-            extend_headers.insert(HeaderName::from_str(k)?, v.parse()?);
-        } else {
-            let mut extend_headers = HeaderMap::new();
-            extend_headers.insert(HeaderName::from_str(k)?, v.parse()?);
-            self.extend_headers = Some(extend_headers)
-        }
-        Ok(self)
+            host: Url::parse(host)?,
+        })
     }
 
     fn url_no_signed(&self, req: &SignRequest) -> Result<Url> {
         Ok(Url::parse(&format!(
             "{}{}{}",
-            Url::parse(&self.host)?,
+            &self.host,
             signing::authorization_query_params_no_sig(
                 &self.id,
                 &req.datetime,
@@ -103,7 +90,7 @@ impl Signer {
 
     pub fn get_signed_url(&self, req: &SignRequest) -> Result<String> {
         Ok(format!(
-            "{}&{X_SIGNATURE}{}",
+            "{}&{X_SIGNATURE}={}",
             self.url_no_signed(req)?,
             self.signed_authorization(req)?
         ))
@@ -128,7 +115,7 @@ mod tests {
 
     #[test]
     fn creates_canonical_request() {
-        let signer = Signer::new("foo", "secret", "http://localhost:3000");
+        let signer = Signer::new("foo", "secret", "http://localhost:3000").unwrap();
 
         let canonical_req = signer.canonical_request(&base_request());
 
@@ -147,7 +134,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
     #[test]
     fn creates_the_non_signed_url() {
-        let signer = Signer::new("foo", "secret", "http://localhost:3000");
+        let signer = Signer::new("foo", "secret", "http://localhost:3000").unwrap();
 
         let non_signed_url = signer.url_no_signed(&base_request()).unwrap();
 
@@ -159,7 +146,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
     #[test]
     fn creates_a_signed_authorization() {
-        let signer = Signer::new("foo", "secret", "http://localhost:3000");
+        let signer = Signer::new("foo", "secret", "http://localhost:3000").unwrap();
 
         let signed_authorization = signer.signed_authorization(&base_request()).unwrap();
 
@@ -171,13 +158,13 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
     #[test]
     fn creates_a_signed_url() {
-        let signer = Signer::new("foo", "secret", "http://localhost:3000");
+        let signer = Signer::new("foo", "secret", "http://localhost:3000").unwrap();
 
         let signed_url = signer.get_signed_url(&base_request()).unwrap();
 
         assert_eq!(
             signed_url,
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-SignedHeaders=X-Sup-Proxy%3BHost&X-Sup-Signature7ca526c0d2f0225ee90e6388356239b5c5722a9ee4a70a4744d4c35234d117fc"
+            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Signature=1fdc94423fff3f3626e2aa31c8a34c360e63f5906d84f14888a8c7c1bd1b00ad"
         )
     }
 }
