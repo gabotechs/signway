@@ -1,79 +1,54 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::u16;
 
 use anyhow::Result;
 use hyper::service::service_fn;
-use hyper::Request;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use url::Url;
 
-use crate::body::{body_to_string, string_to_body};
-use crate::sign_request::SignRequest;
-use crate::signer::Signer;
+use crate::secret_getter::{InMemorySecretGetter, SecretGetter};
 
-pub struct Server {
-    port: u16,
-    self_host: Url,
+pub struct Server<T: SecretGetter> {
+    pub port: u16,
+    pub self_host: Url,
+    pub secret_getter: T,
 }
 
-impl Server {
-    pub fn from_env() -> Result<Server> {
+impl<T: SecretGetter> Server<T> {
+    pub fn from_env(secret_getter: T) -> Result<Server<T>> {
         Ok(Server {
-            port: u16::from_str(&std::env::var("PORT").unwrap_or("8765".to_string()))
+            port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             self_host: Url::parse(
-                &std::env::var("SELF_HOST").expect("SELF_HOST env variable not present"),
+                &std::env::var("SELF_HOST").unwrap_or("http://localhost".to_string()),
             )
             .expect("failed to parse SELF_HOST env variable"),
+            secret_getter,
         })
     }
 
-    pub fn new(port: u16, self_host: Url) -> Server {
-        Server { port, self_host }
+    pub fn for_testing<const N: usize>(config: [(&str, &str); N]) -> Server<InMemorySecretGetter> {
+        Server {
+            port: 3000,
+            self_host: Url::parse("http://localhost:3000").unwrap(),
+            secret_getter: InMemorySecretGetter(HashMap::from(
+                config.map(|e| (e.0.to_string(), e.1.to_string())),
+            )),
+        }
     }
 
     pub async fn start(&'static self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
         let listener = TcpListener::bind(in_addr).await?;
 
+        println!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
-            let self_host = &self.self_host;
+            let service = service_fn(|req| self.route_gateway(req));
 
-            let service = service_fn(move |mut req| async {
-                let (mut to_sign, info) = SignRequest::from_req(&req).unwrap();
-                let signer = Signer::new(&info.id, "", self_host.clone());
-
-                if info.include_body {
-                    let content_length = req.headers().get("content-length").unwrap();
-                    let content_length = usize::from_str(content_length.to_str().unwrap()).unwrap();
-                    let (parts, body) = req.into_parts();
-                    let body = body_to_string(body, content_length).await.unwrap();
-                    to_sign.body = Some(body.clone());
-                    req = Request::from_parts(parts, string_to_body(&body))
-                }
-
-                let declared_signature = &info.signature;
-                let actual_signature = &signer.get_signature(&to_sign).unwrap();
-
-                if declared_signature != actual_signature {
-                    panic!("signatures do not match");
-                }
-
-                let client_stream = TcpStream::connect("TODO").await.unwrap();
-
-                let (mut sender, conn) = hyper::client::conn::handshake(client_stream).await?;
-                tokio::task::spawn(async {
-                    if let Err(err) = conn.await {
-                        println!("Connection failed: {:?}", err);
-                    }
-                });
-
-                sender.send_request(req).await
-            });
-
-            tokio::task::spawn(async move {
+            tokio::spawn(async move {
                 if let Err(err) = hyper::server::conn::Http::new()
                     .serve_connection(stream, service)
                     .await

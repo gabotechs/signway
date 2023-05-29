@@ -1,14 +1,17 @@
+use crate::secret_getter::InMemorySecretGetter;
 use crate::server::Server;
 use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 mod body;
+mod route_gateway;
+mod secret_getter;
 mod server;
-mod sign_request;
-mod signer;
 mod signing;
 
 lazy_static! {
-    static ref SERVER: Server = Server::from_env().expect("failure creating server from env");
+    static ref SERVER: Server<InMemorySecretGetter> =
+        Server::<InMemorySecretGetter>::for_testing([("foo", "foo-secret")]);
 }
 
 #[tokio::main]

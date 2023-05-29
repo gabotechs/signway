@@ -7,18 +7,18 @@ use hyper::HeaderMap;
 use sha2::Sha256;
 use url::Url;
 
-use crate::sign_request::SignRequest;
-use crate::signing;
+use super::sign_request::SignRequest;
+use crate::signing::signing_functions;
 
 type HmacSha256 = Hmac<Sha256>;
 
-pub struct Signer {
+pub struct UrlSigner {
     id: String,
     secret: String,
     host: Url,
 }
 
-impl Signer {
+impl UrlSigner {
     pub fn new(id: &str, secret: &str, host: Url) -> Self {
         Self {
             id: id.to_string(),
@@ -31,18 +31,18 @@ impl Signer {
         Ok(Url::parse(&format!(
             "{}{}{}",
             &self.host,
-            signing::authorization_query_params_no_sig(
+            signing_functions::authorization_query_params_no_sig(
                 &self.id,
                 &req.datetime,
                 req.expiry,
-                &req.url,
+                &req.proxy_url,
                 match &req.headers {
                     Some(headers) => Some(headers),
                     None => None,
                 },
                 req.body.is_some()
             )?,
-            &signing::flatten_queries(match &req.queries {
+            &signing_functions::flatten_queries(match &req.queries {
                 Some(queries) => Some(queries),
                 None => None,
             }),
@@ -56,7 +56,7 @@ impl Signer {
                 headers.insert(k.clone(), v.clone());
             }
         }
-        Ok(signing::canonical_request(
+        Ok(signing_functions::canonical_request(
             &req.method,
             &self.url_no_signed(req)?,
             &headers,
@@ -66,10 +66,12 @@ impl Signer {
 
     pub fn get_signature(&self, req: &SignRequest) -> Result<String> {
         let canonical_request = self.canonical_request(req)?;
-        let to_sign = signing::string_to_sign(&req.datetime, &canonical_request);
+        let to_sign = signing_functions::string_to_sign(&req.datetime, &canonical_request);
 
-        let mut hmac =
-            HmacSha256::new_from_slice(&signing::signing_key(&req.datetime, &self.secret)?)?;
+        let mut hmac = HmacSha256::new_from_slice(&signing_functions::signing_key(
+            &req.datetime,
+            &self.secret,
+        )?)?;
         hmac.update(to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         Ok(signature)
@@ -79,7 +81,7 @@ impl Signer {
         Ok(format!(
             "{}&{}={}",
             self.url_no_signed(req)?,
-            signing::X_SIGNATURE,
+            signing_functions::X_SIGNATURE,
             self.get_signature(req)?
         ))
     }
@@ -88,13 +90,14 @@ impl Signer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time::OffsetDateTime;
+    use time::{OffsetDateTime, PrimitiveDateTime};
 
     fn base_request() -> SignRequest {
+        let epoch = OffsetDateTime::UNIX_EPOCH;
         SignRequest {
-            url: Url::parse("https://github.com").unwrap(),
+            proxy_url: Url::parse("https://github.com").unwrap(),
             expiry: 600,
-            datetime: OffsetDateTime::UNIX_EPOCH,
+            datetime: PrimitiveDateTime::new(epoch.date(), epoch.time()),
             method: "POST".to_string(),
             headers: None,
             queries: None,
@@ -102,8 +105,8 @@ mod tests {
         }
     }
 
-    fn signer() -> Signer {
-        Signer::new(
+    fn signer() -> UrlSigner {
+        UrlSigner::new(
             "foo",
             "secret",
             Url::parse("http://localhost:3000").unwrap(),
@@ -119,7 +122,7 @@ mod tests {
             "\
 POST
 /
-X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host
+X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host
 
 
 
@@ -133,7 +136,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
         assert_eq!(
             non_signed_url.to_string(),
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host"
+            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Body=false"
         )
     }
 
@@ -143,7 +146,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
         assert_eq!(
             signed_authorization,
-            "1fdc94423fff3f3626e2aa31c8a34c360e63f5906d84f14888a8c7c1bd1b00ad"
+            "87aa642c48328b5a86cd3c0c7408bcbc0d6135506afbdd222a6086e4d05031f7"
         )
     }
 
@@ -153,7 +156,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=1970
 
         assert_eq!(
             signed_url,
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Signature=1fdc94423fff3f3626e2aa31c8a34c360e63f5906d84f14888a8c7c1bd1b00ad"
+            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Body=false&X-Sup-Signature=87aa642c48328b5a86cd3c0c7408bcbc0d6135506afbdd222a6086e4d05031f7"
         )
     }
 }

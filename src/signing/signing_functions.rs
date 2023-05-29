@@ -7,7 +7,7 @@ use hmac::{Hmac, Mac};
 use hyper::HeaderMap;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
-use time::{macros::format_description, OffsetDateTime};
+use time::{macros::format_description, PrimitiveDateTime};
 use url::Url;
 
 pub const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
@@ -116,11 +116,11 @@ pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, body: &st
     )
 }
 
-pub fn scope_string(datetime: &OffsetDateTime) -> String {
+pub fn scope_string(datetime: &PrimitiveDateTime) -> String {
     datetime.format(SHORT_DATE).unwrap()
 }
 
-pub fn string_to_sign(datetime: &OffsetDateTime, canonical_req: &str) -> String {
+pub fn string_to_sign(datetime: &PrimitiveDateTime, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.update(canonical_req.as_bytes());
     format!(
@@ -131,7 +131,7 @@ pub fn string_to_sign(datetime: &OffsetDateTime, canonical_req: &str) -> String 
     )
 }
 
-pub fn signing_key(datetime: &OffsetDateTime, secret_key: &str) -> Result<Vec<u8>> {
+pub fn signing_key(datetime: &PrimitiveDateTime, secret_key: &str) -> Result<Vec<u8>> {
     let secret = format!("{ALGORITHM}{secret_key}");
     let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes())?;
     date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
@@ -140,7 +140,7 @@ pub fn signing_key(datetime: &OffsetDateTime, secret_key: &str) -> Result<Vec<u8
 
 pub fn authorization_query_params_no_sig(
     access_key: &str,
-    datetime: &OffsetDateTime,
+    datetime: &PrimitiveDateTime,
     expires: u32,
     proxy_url: &Url,
     custom_headers: Option<&HeaderMap>,
@@ -168,7 +168,7 @@ pub fn authorization_query_params_no_sig(
     let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
     let proxy_url = utf8_percent_encode(&proxy_url, FRAGMENT_SLASH);
     let long_date = datetime.format(LONG_DATETIME).unwrap();
-    let mut sign_body = if sign_body { "true" } else { "false" };
+    let sign_body = if sign_body { "true" } else { "false" };
 
     Ok(format!(
         "?{X_ALGORITHM}={ALGORITHM}\
