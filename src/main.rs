@@ -11,7 +11,8 @@ mod signing;
 
 lazy_static! {
     static ref SERVER: Server<InMemorySecretGetter> =
-        Server::<InMemorySecretGetter>::for_testing([("foo", "foo-secret")]);
+        Server::from_env(InMemorySecretGetter(HashMap::new()))
+            .expect("failure creating server from env");
 }
 
 #[tokio::main]

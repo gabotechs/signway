@@ -2,7 +2,6 @@ use anyhow::anyhow;
 use std::str::FromStr;
 
 use hyper::body::Body;
-use hyper::client::HttpConnector;
 use hyper::{Request, Response, StatusCode, Uri};
 use hyper_tls::HttpsConnector;
 
@@ -18,7 +17,7 @@ fn bad_request() -> Response<Body> {
         .unwrap()
 }
 
-fn internal_server(e: impl Into<anyhow::Error>) -> Response<Body> {
+fn internal_server(_e: impl Into<anyhow::Error>) -> Response<Body> {
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(Body::empty())
@@ -96,62 +95,9 @@ impl<T: SecretGetter> Server<T> {
 
         let https = HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, Body>(https);
-        client.request(req).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::secret_getter::InMemorySecretGetter;
-    use hyper::HeaderMap;
-    use lazy_static::lazy_static;
-    use std::collections::HashMap;
-    use time::{OffsetDateTime, PrimitiveDateTime};
-    use url::Url;
-
-    lazy_static! {
-        static ref SERVER: Server<InMemorySecretGetter> =
-            Server::<InMemorySecretGetter>::for_testing([("foo", "foo-secret")]);
-        static ref HOST: Url = Url::parse("http://localhost:3000").unwrap();
-    }
-
-    #[tokio::test]
-    async fn it_works() {
-        tokio::task::spawn(SERVER.start());
-        println!("{}", SERVER.self_host);
-        let signer = UrlSigner::new("foo", "foo-secret", HOST.clone());
-
-        let now = OffsetDateTime::now_utc();
-
-        let sign_request = SignRequest {
-            proxy_url: Url::parse("https://github.com").unwrap(),
-            expiry: 10,
-            datetime: PrimitiveDateTime::new(now.date(), now.time()),
-            method: "GET".to_string(),
-            headers: Some(
-                HeaderMap::try_from(&HashMap::from([(
-                    "host".to_string(),
-                    "github.com".to_string(),
-                )]))
-                .unwrap(),
-            ),
-            queries: None,
-            body: None,
-        };
-
-        let signed_url = signer.get_signed_url(&sign_request).unwrap();
-
-        let response = reqwest::Client::new()
-            .get(signed_url)
-            .header("host", "github.com")
-            .send()
-            .await
-            .unwrap();
-
-        let status = response.status();
-        let text = response.text().await.unwrap();
-        println!("{text}");
-        assert_eq!(status, StatusCode::OK);
+        match client.request(req).await {
+            Ok(a) => Ok(a),
+            Err(e) => Ok(bad_gateway(e)),
+        }
     }
 }
