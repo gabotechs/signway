@@ -40,4 +40,12 @@ mod tests {
         let err = body_to_string(body, 2).await.unwrap_err();
         assert_eq!(err.to_string(), "too big")
     }
+
+    #[tokio::test]
+    async fn works_with_a_really_long_body() {
+        let len = 1e8 as usize;
+        let body = string_to_body(&"a".repeat(len));
+
+        body_to_string(body, len).await.unwrap();
+    }
 }
