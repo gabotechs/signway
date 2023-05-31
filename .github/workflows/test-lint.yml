@@ -1,4 +1,4 @@
-name: Test/Tag
+name: Test/Lint
 
 on:
   pull_request:
