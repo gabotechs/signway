@@ -41,7 +41,7 @@ impl<T: SecretGetter> Server<T> {
     }
 
     pub async fn route_gateway(&self, mut req: Request<Body>) -> hyper::Result<Response<Body>> {
-        let (mut to_sign, info) = match SignRequest::from_req(&req) {
+        let (mut to_sign, info) = match SignRequest::from_signed_request(&req) {
             Ok((a, b)) => (a, b),
             Err(_) => return Ok(bad_request()),
         };
@@ -99,5 +99,46 @@ impl<T: SecretGetter> Server<T> {
             Ok(a) => Ok(a),
             Err(e) => Ok(bad_gateway(e)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::_test_tools::tests::ReqBuilder;
+    use crate::secret_getter::InMemorySecretGetter;
+    use std::collections::HashMap;
+    use url::Url;
+
+    fn server() -> Server<InMemorySecretGetter> {
+        Server {
+            port: 0,
+            self_host: Url::parse("http://localhost").unwrap(),
+            secret_getter: InMemorySecretGetter(HashMap::from([(
+                "foo".to_string(),
+                "bar".to_string(),
+            )])),
+        }
+    }
+
+    #[tokio::test]
+    async fn simple() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .header("host", "postman-echo.com")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .header("host", "postman-echo.com")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        println!(
+            "{}",
+            body_to_string(response.into_body(), 9999).await.unwrap()
+        );
     }
 }

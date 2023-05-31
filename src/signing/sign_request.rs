@@ -30,7 +30,7 @@ pub struct SignInfo {
 }
 
 impl SignRequest {
-    pub fn from_req<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
+    pub fn from_signed_request<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
         let mut uri = req.uri().to_string();
         // TODO: is there a better way to parse just the query params here?
         if uri.starts_with('/') {
@@ -150,7 +150,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_ALGORITHM}"))
     }
@@ -163,7 +163,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_DATE}"))
     }
@@ -177,7 +177,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_EXPIRES}"))
     }
@@ -193,7 +193,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNED_HEADERS}"))
     }
@@ -212,7 +212,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), "Request has expired")
     }
@@ -228,7 +228,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -248,7 +248,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_PROXY}"))
     }
@@ -265,7 +265,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_CREDENTIAL}"))
     }
@@ -282,7 +282,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNATURE}"))
     }
@@ -299,7 +299,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_req(&req).unwrap_err();
+        let err = SignRequest::from_signed_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNED_BODY}"))
     }
@@ -316,7 +316,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let (sign_req, info) = SignRequest::from_req(&req).unwrap();
+        let (sign_req, info) = SignRequest::from_signed_request(&req).unwrap();
         assert_eq!(sign_req.proxy_url.to_string(), "https://github.com/");
         assert_eq!(sign_req.expiry, 60);
         assert_eq!(sign_req.method, "POST");
