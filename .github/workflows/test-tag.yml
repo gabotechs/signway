@@ -15,9 +15,10 @@ jobs:
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable-2023-04-20 # Fixed so that it can be cached
           profile: minimal
-          override: true
           components: clippy
+          override: true
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -33,6 +34,7 @@ jobs:
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable-2023-04-20 # Fixed so that it can be cached
           override: true
           components: llvm-tools-preview
 
@@ -56,4 +58,5 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: coverage.lcov
+
 
