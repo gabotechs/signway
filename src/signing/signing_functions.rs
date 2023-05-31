@@ -62,7 +62,6 @@ pub const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
 pub const X_SIGNED_BODY: &str = "X-Sup-Body";
 pub const X_PROXY: &str = "X-Sup-Proxy";
 pub const X_SIGNATURE: &str = "X-Sup-Signature";
-pub const HOST: &str = "Host";
 
 pub fn canonical_uri_string(uri: &Url) -> String {
     let decoded = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
@@ -148,7 +147,7 @@ pub fn authorization_query_params_no_sig(
 ) -> Result<String> {
     let credentials = format!("{}/{}", access_key, scope_string(datetime));
 
-    let mut signed_headers = vec![HOST.to_string()];
+    let mut signed_headers = vec![];
     if let Some(custom_headers) = &custom_headers {
         for k in custom_headers.keys() {
             signed_headers.push(k.to_string())

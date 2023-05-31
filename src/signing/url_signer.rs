@@ -122,7 +122,7 @@ mod tests {
             "\
 POST
 /
-X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host
+X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=
 
 
 
@@ -136,7 +136,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F1970010
 
         assert_eq!(
             non_signed_url.to_string(),
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Body=false"
+            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=&X-Sup-Body=false"
         )
     }
 
@@ -146,7 +146,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F1970010
 
         assert_eq!(
             signed_authorization,
-            "87aa642c48328b5a86cd3c0c7408bcbc0d6135506afbdd222a6086e4d05031f7"
+            "f9ef3f037f5da91a2de988756cded83e1e3ad1e1c313c2de734c2d5679601c37"
         )
     }
 
@@ -156,7 +156,7 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F1970010
 
         assert_eq!(
             signed_url,
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=Host&X-Sup-Body=false&X-Sup-Signature=87aa642c48328b5a86cd3c0c7408bcbc0d6135506afbdd222a6086e4d05031f7"
+            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=&X-Sup-Body=false&X-Sup-Signature=f9ef3f037f5da91a2de988756cded83e1e3ad1e1c313c2de734c2d5679601c37"
         )
     }
 }
