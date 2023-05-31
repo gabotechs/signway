@@ -1,6 +1,8 @@
-# Signed Url Proxy
+# Signway
 
-Signed Url Proxy will proxy your requests to external APIs.
+[![Coverage Status](https://coveralls.io/repos/github/gabotechs/signway/badge.svg)](https://coveralls.io/github/gabotechs/signway)
+
+A gateway that proxies signed urls to other APIs.
 
 
 ## Config entry
