@@ -1,7 +1,7 @@
+use std::collections::HashMap;
+
 use crate::secret_getter::InMemorySecretGetter;
 use crate::server::Server;
-use lazy_static::lazy_static;
-use std::collections::HashMap;
 
 #[cfg(test)]
 mod _test_tools;
@@ -11,13 +11,12 @@ mod secret_getter;
 mod server;
 mod signing;
 
-lazy_static! {
-    static ref SERVER: Server<InMemorySecretGetter> =
-        Server::from_env(InMemorySecretGetter(HashMap::new()))
-            .expect("failure creating server from env");
-}
-
 #[tokio::main]
 async fn main() {
-    SERVER.start().await.expect("TODO: panic message");
+    let server = Server::from_env(InMemorySecretGetter(HashMap::from([(
+        "foo".to_string(),
+        "bar".to_string(),
+    )])))
+    .expect("failure creating server from env");
+    server.start().await.expect("TODO: panic message");
 }

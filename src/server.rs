@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::u16;
 
 use anyhow::Result;
@@ -9,7 +10,7 @@ use url::Url;
 
 use crate::secret_getter::SecretGetter;
 
-pub struct Server<T: SecretGetter> {
+pub struct Server<T: SecretGetter + 'static> {
     pub port: u16,
     pub self_host: Url,
     pub secret_getter: T,
@@ -28,14 +29,21 @@ impl<T: SecretGetter> Server<T> {
         })
     }
 
-    pub async fn start(&'static self) -> Result<()> {
+    pub async fn start(self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
-        let listener = TcpListener::bind(in_addr).await?;
 
+        let arc_self = Arc::new(self);
+        let listener = TcpListener::bind(in_addr).await?;
         println!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
-            let service = service_fn(|req| self.route_gateway(req));
+
+            let arc_self = arc_self.clone();
+
+            let service = service_fn(move |req| {
+                let arc_self = arc_self.clone();
+                async move { arc_self.route_gateway(req).await }
+            });
 
             tokio::spawn(async move {
                 if let Err(err) = hyper::server::conn::Http::new()
@@ -51,17 +59,16 @@ impl<T: SecretGetter> Server<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::secret_getter::InMemorySecretGetter;
-    use hyper::{HeaderMap, StatusCode};
-    use lazy_static::lazy_static;
     use std::collections::HashMap;
-    use std::thread::sleep;
-    use std::time::Duration;
+
+    use hyper::StatusCode;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
+    use crate::secret_getter::InMemorySecretGetter;
     use crate::signing::{SignRequest, UrlSigner};
+
+    use super::*;
 
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
@@ -75,17 +82,6 @@ mod tests {
         }
     }
 
-    lazy_static! {
-        static ref SERVER: Server<InMemorySecretGetter> =
-            server_for_testing([("foo", "foo-secret")]);
-        static ref HOST: Url = {
-            tokio::task::spawn(SERVER.start());
-            sleep(Duration::from_millis(1000));
-            Url::parse("http://localhost:3000").unwrap()
-        };
-        static ref SIGNER: UrlSigner = UrlSigner::new("foo", "foo-secret", HOST.clone());
-    }
-
     fn base_request() -> SignRequest {
         let now = OffsetDateTime::now_utc();
 
@@ -94,20 +90,18 @@ mod tests {
             expiry: 10,
             datetime: PrimitiveDateTime::new(now.date(), now.time()),
             method: "GET".to_string(),
-            headers: Some(
-                HeaderMap::try_from(&HashMap::from([(
-                    "host".to_string(),
-                    "localhost:3000".to_string(),
-                )]))
-                .unwrap(),
-            ),
+            headers: None,
             body: None,
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn simple_get_works() {
-        let signed_url = SIGNER.get_signed_url(&base_request()).unwrap();
+        let server = server_for_testing([("foo", "foo-secret")]);
+        tokio::task::spawn(server.start());
+        let host = Url::parse("http://localhost:3000").unwrap();
+        let signer = UrlSigner::new("foo", "foo-secret", host.clone());
+        let signed_url = signer.get_signed_url(&base_request()).unwrap();
 
         let response = reqwest::Client::new()
             .get(signed_url)
@@ -120,9 +114,12 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn signed_with_different_secret_does_not_work() {
-        let bad_signer = UrlSigner::new("foo", "bad-secret", HOST.clone());
+        let server = server_for_testing([("foo", "foo-secret")]);
+        tokio::task::spawn(server.start());
+        let host = Url::parse("http://localhost:3000").unwrap();
+        let bad_signer = UrlSigner::new("foo", "bad-secret", host.clone());
 
         let signed_url = bad_signer.get_signed_url(&base_request()).unwrap();
 
