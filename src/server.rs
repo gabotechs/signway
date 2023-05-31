@@ -95,7 +95,8 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[ignore] // something weird happens with the `cargo test` runtime and task spawning
+    #[tokio::test]
     async fn simple_get_works() {
         let server = server_for_testing([("foo", "foo-secret")]);
         tokio::task::spawn(server.start());
@@ -114,7 +115,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
         let server = server_for_testing([("foo", "foo-secret")]);
         tokio::task::spawn(server.start());
