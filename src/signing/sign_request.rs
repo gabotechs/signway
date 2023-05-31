@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Add;
 use std::str::FromStr;
 
@@ -18,7 +17,6 @@ pub struct SignRequest {
     pub datetime: PrimitiveDateTime,
     pub method: String,
     pub headers: Option<HeaderMap>,
-    pub queries: Option<HashMap<String, String>>,
     pub body: Option<String>,
 }
 
@@ -85,6 +83,9 @@ impl SignRequest {
         let mut headers = HeaderMap::new();
         // TODO: where does this come from
         for header in signed_headers.split(';') {
+            if header.is_empty() {
+                continue;
+            }
             let value = req.headers().get(header).ok_or_else(|| {
                 anyhow!("header {header} should be signed but it is missing in the request")
             })?;
@@ -99,7 +100,6 @@ impl SignRequest {
             datetime,
             method: req.method().to_string(),
             headers: Some(headers),
-            queries: None,
             body: None,
         };
 
@@ -110,6 +110,10 @@ impl SignRequest {
             .into_iter()
             .next()
             .ok_or_else(|| anyhow!("invalid {}", signing_functions::X_CREDENTIAL))?;
+
+        if id.is_empty() {
+            return Err(anyhow!("invalid {}", signing_functions::X_CREDENTIAL));
+        }
 
         let signing_info = SignInfo {
             signature: x_signature

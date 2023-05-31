@@ -105,7 +105,7 @@ impl<T: SecretGetter> Server<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::_test_tools::tests::ReqBuilder;
+    use crate::_test_tools::tests::{json_path, ReqBuilder};
     use crate::secret_getter::InMemorySecretGetter;
     use std::collections::HashMap;
     use url::Url;
@@ -122,23 +122,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn simple() {
+    async fn empty() {
         let response = server()
             .route_gateway(
                 ReqBuilder::default()
-                    .header("host", "postman-echo.com")
                     .sign("foo", "bar", "http://localhost:3000")
                     .unwrap()
-                    .header("host", "postman-echo.com")
                     .build()
                     .unwrap(),
             )
             .await
             .unwrap();
 
-        println!(
-            "{}",
-            body_to_string(response.into_body(), 9999).await.unwrap()
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = body_to_string(response.into_body(), 9999).await.unwrap();
+        assert_eq!(
+            json_path::<String>(&response, &["url"]).unwrap(),
+            "https://postman-echo.com/get"
+        )
+    }
+
+    #[tokio::test]
+    async fn with_query_params() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = body_to_string(response.into_body(), 9999).await.unwrap();
+        assert_eq!(
+            json_path::<String>(&response, &["args", "page"]).unwrap(),
+            "1"
+        )
+    }
+
+    #[tokio::test]
+    async fn with_query_params_and_headers() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .header("Content-Length", "3")
+                    .post()
+                    .body("foo")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = body_to_string(response.into_body(), 9999).await.unwrap();
+        println!("{}", response);
+        assert_eq!(
+            json_path::<String>(&response, &["headers", "content-length"]).unwrap(),
+            "3"
         );
+        assert_eq!(json_path::<String>(&response, &["data"]).unwrap(), "foo")
     }
 }

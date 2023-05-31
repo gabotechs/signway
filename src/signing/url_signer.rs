@@ -29,7 +29,7 @@ impl UrlSigner {
 
     fn url_no_signed(&self, req: &SignRequest) -> Result<Url> {
         Ok(Url::parse(&format!(
-            "{}{}{}",
+            "{}{}",
             &self.host,
             signing_functions::authorization_query_params_no_sig(
                 &self.id,
@@ -42,10 +42,6 @@ impl UrlSigner {
                 },
                 req.body.is_some()
             )?,
-            &signing_functions::flatten_queries(match &req.queries {
-                Some(queries) => Some(queries),
-                None => None,
-            }),
         ))?)
     }
 
@@ -100,7 +96,6 @@ mod tests {
             datetime: PrimitiveDateTime::new(epoch.date(), epoch.time()),
             method: "POST".to_string(),
             headers: None,
-            queries: None,
             body: None,
         }
     }

@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::str;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use hmac::{Hmac, Mac};
 use hyper::HeaderMap;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
@@ -155,13 +153,7 @@ pub fn authorization_query_params_no_sig(
     }
     let signed_headers = signed_headers.join(";");
 
-    let proxy_url = proxy_url.scheme().to_string()
-        + "://"
-        + &proxy_url
-            .host()
-            .ok_or_else(|| anyhow!("Invalid host in url"))?
-            .to_string()
-        + proxy_url.path();
+    let proxy_url = proxy_url.to_string();
 
     let credentials = utf8_percent_encode(&credentials, FRAGMENT_SLASH);
     let signed_headers = utf8_percent_encode(&signed_headers, FRAGMENT_SLASH);
@@ -178,23 +170,4 @@ pub fn authorization_query_params_no_sig(
             &{X_SIGNED_HEADERS}={signed_headers}\
             &{X_SIGNED_BODY}={sign_body}",
     ))
-}
-
-pub fn flatten_queries(queries: Option<&HashMap<String, String>>) -> String {
-    match queries {
-        None => String::new(),
-        Some(queries) => {
-            let mut query_str = String::new();
-            for (k, v) in queries {
-                write!(
-                    query_str,
-                    "&{}={}",
-                    utf8_percent_encode(k, FRAGMENT_SLASH),
-                    utf8_percent_encode(v, FRAGMENT_SLASH),
-                )
-                .unwrap();
-            }
-            query_str
-        }
-    }
 }

@@ -2,10 +2,13 @@ use hyper::{Body, Request};
 
 #[cfg(test)]
 pub mod tests {
+    use anyhow::{anyhow, Context};
     use std::collections::HashMap;
+    use std::str::FromStr;
 
     use hyper::header::HeaderName;
     use hyper::{HeaderMap, Uri};
+    use serde::de::DeserializeOwned;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
@@ -95,7 +98,6 @@ pub mod tests {
                 datetime: PrimitiveDateTime::new(now.date(), now.time()),
                 method: self.method.clone(),
                 headers: self.build_headers()?,
-                queries: None,
                 body: self.body.clone(),
             };
 
@@ -116,9 +118,31 @@ pub mod tests {
             Ok(self)
         }
 
-        pub fn method(mut self, v: &str) -> Self {
-            self.method = v.to_string();
+        pub fn post(mut self) -> Self {
+            self.method = "POST".to_string();
+            self.url = "https://postman-echo.com/post".to_string();
             self
         }
+
+        pub fn body(mut self, v: &str) -> Self {
+            self.body = Some(v.to_string());
+            self
+        }
+    }
+
+    pub fn json_path<T: DeserializeOwned>(response: &str, path: &[&str]) -> anyhow::Result<T> {
+        let mut value = &serde_json::from_str::<serde_json::Value>(response)?;
+        for p in path {
+            if let Ok(index) = usize::from_str(p) {
+                value = value
+                    .get(index)
+                    .context(anyhow!("'{}' field not found while deserializing", p))?;
+            } else {
+                value = value
+                    .get(p)
+                    .context(anyhow!("'{}' field not found while deserializing", p))?;
+            }
+        }
+        Ok(serde_json::from_value::<T>(value.clone())?)
     }
 }
