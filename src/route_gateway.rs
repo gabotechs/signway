@@ -107,6 +107,7 @@ mod tests {
     use super::*;
     use crate::_test_tools::tests::{json_path, ReqBuilder};
     use crate::secret_getter::InMemorySecretGetter;
+    use crate::signing::X_PROXY;
     use std::collections::HashMap;
     use url::Url;
 
@@ -150,6 +151,7 @@ mod tests {
                     .query("page", "1")
                     .sign("foo", "bar", "http://localhost:3000")
                     .unwrap()
+                    .query(X_PROXY, "https://postman-echo.com/get?page=1")
                     .build()
                     .unwrap(),
             )
@@ -165,7 +167,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn with_query_params_and_headers() {
+    async fn with_query_params_and_headers_and_body() {
         let response = server()
             .route_gateway(
                 ReqBuilder::default()
@@ -183,11 +185,125 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let response = body_to_string(response.into_body(), 9999).await.unwrap();
-        println!("{}", response);
         assert_eq!(
             json_path::<String>(&response, &["headers", "content-length"]).unwrap(),
             "3"
         );
         assert_eq!(json_path::<String>(&response, &["data"]).unwrap(), "foo")
+    }
+
+    #[tokio::test]
+    async fn with_query_params_and_headers_and_body_and_additional_header() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .header("Content-Length", "3")
+                    .post()
+                    .body("foo")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .header("Content-Type", "text/html")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = body_to_string(response.into_body(), 9999).await.unwrap();
+        assert_eq!(
+            json_path::<String>(&response, &["headers", "content-length"]).unwrap(),
+            "3"
+        );
+        assert_eq!(
+            json_path::<String>(&response, &["headers", "content-type"]).unwrap(),
+            "text/html"
+        );
+        assert_eq!(json_path::<String>(&response, &["data"]).unwrap(), "foo")
+    }
+
+    #[tokio::test]
+    async fn with_query_params_and_headers_and_additional_body() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .header("Content-Length", "3")
+                    .post()
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .body("foo")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = body_to_string(response.into_body(), 9999).await.unwrap();
+        assert_eq!(
+            json_path::<String>(&response, &["headers", "content-length"]).unwrap(),
+            "3"
+        );
+        assert_eq!(json_path::<String>(&response, &["data"]).unwrap(), "foo")
+    }
+
+    #[tokio::test]
+    async fn with_invalid_query_param() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .query(X_PROXY, "https://postman-echo.com/get?page=2")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn with_invalid_header() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .header("Content-Length", "3")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .header("Content-Length", "4")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn with_invalid_body() {
+        let response = server()
+            .route_gateway(
+                ReqBuilder::default()
+                    .query("page", "1")
+                    .header("Content-Length", "3")
+                    .post()
+                    .body("foo")
+                    .sign("foo", "bar", "http://localhost:3000")
+                    .unwrap()
+                    .body("bar")
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
