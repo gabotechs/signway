@@ -80,7 +80,7 @@ mod tests {
             server_for_testing([("foo", "foo-secret")]);
         static ref HOST: Url = {
             tokio::task::spawn(SERVER.start());
-            sleep(Duration::from_millis(100));
+            sleep(Duration::from_millis(1000));
             Url::parse("http://localhost:3000").unwrap()
         };
         static ref SIGNER: UrlSigner = UrlSigner::new("foo", "foo-secret", HOST.clone());
