@@ -1,26 +1,78 @@
-use hyper::HeaderMap;
-use std::collections::HashMap;
+use anyhow::anyhow;
+use std::str::FromStr;
 
-use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
-use crate::server::Server;
+use async_trait::async_trait;
+use clap::Parser;
 
-#[cfg(test)]
-mod _test_tools;
-mod body;
-mod route_gateway;
-mod secret_getter;
-mod server;
-mod signing;
+use signway_server::{HeaderMap, HeaderName, SecretGetter, SecretGetterResult, SignwayServer};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(help = "access id that is expected to sign urls for this server")]
+    id: String,
+
+    #[arg(help = "secret associated to the access id")]
+    secret: String,
+
+    #[arg(
+        help = "if a signed url is authentic, this headers will be added to the proxy-ed request"
+    )]
+    header: Vec<String>,
+}
+
+struct Config {
+    id: String,
+    secret: String,
+    headers: HeaderMap,
+}
+
+impl TryInto<Config> for Args {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Config, Self::Error> {
+        let mut headers = HeaderMap::new();
+
+        for h in self.header {
+            let mut split = h.splitn(2, ':');
+            let k = split
+                .next()
+                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?;
+            let v = split
+                .next()
+                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?
+                .to_string();
+            headers.insert(HeaderName::from_str(k)?, v.trim().parse()?);
+        }
+
+        Ok(Config {
+            id: self.id,
+            secret: self.secret,
+            headers,
+        })
+    }
+}
+
+#[async_trait]
+impl SecretGetter for Config {
+    type Error = anyhow::Error;
+
+    async fn get_secret(&self, id: &str) -> Result<Option<SecretGetterResult>, Self::Error> {
+        if id != self.id {
+            return Ok(None);
+        }
+        Ok(Some(SecretGetterResult {
+            secret: self.secret.clone(),
+            headers_extension: self.headers.clone(),
+        }))
+    }
+}
 
 #[tokio::main]
-async fn main() {
-    let server = Server::from_env(InMemorySecretGetter(HashMap::from([(
-        "foo".to_string(),
-        SecretGetterResult {
-            secret: "bar".to_string(),
-            headers_extension: HeaderMap::new(),
-        },
-    )])))
-    .expect("failure creating server from env");
-    server.start().await.expect("TODO: panic message");
+async fn main() -> anyhow::Result<()> {
+    let args: Args = Args::parse();
+    let config: Config = args.try_into()?;
+    tracing_subscriber::fmt().json().init();
+    let server = SignwayServer::from_env(config)?;
+    server.start().await
 }

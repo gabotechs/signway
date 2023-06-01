@@ -11,15 +11,15 @@ use url::Url;
 
 use crate::secret_getter::SecretGetter;
 
-pub struct Server<T: SecretGetter + 'static> {
+pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
     pub self_host: Url,
     pub secret_getter: T,
 }
 
-impl<T: SecretGetter> Server<T> {
-    pub fn from_env(secret_getter: T) -> Result<Server<T>> {
-        Ok(Server {
+impl<T: SecretGetter> SignwayServer<T> {
+    pub fn from_env(secret_getter: T) -> Result<SignwayServer<T>> {
+        Ok(SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             self_host: Url::parse(
@@ -67,15 +67,16 @@ mod tests {
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
+    use crate::_test_tools::tests::InMemorySecretGetter;
+    use crate::secret_getter::SecretGetterResult;
     use crate::signing::{SignRequest, UrlSigner};
 
     use super::*;
 
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
-    ) -> Server<InMemorySecretGetter> {
-        Server {
+    ) -> SignwayServer<InMemorySecretGetter> {
+        SignwayServer {
             port: 3000,
             self_host: Url::parse("http://localhost:3000").unwrap(),
             secret_getter: InMemorySecretGetter(HashMap::from(config.map(|e| {

@@ -1,26 +1,15 @@
 [package]
-name = "signed-url-proxy"
+name = "signway"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = ["server"]
 
 [dependencies]
-hyper = { version = "0.14.26", features = ["full"] }
-hyper-tls = "0.5.0"
+signway-server = { path = "server" }
 tokio = { version = "1.28.1", features = ["full"] }
-url = "2.3.1"
-anyhow = "1.0.71"
-serde = { version = "1.0.163", features = ["derive"] }
-serde_json = "1.0.96"
-hex = "0.4.3"
-hmac = "0.12.1"
-sha2 = "0.10.6"
-time = { version = "0.3.6", features = ["formatting", "macros", "parsing"] }
-percent-encoding = "2.2.0"
-lazy_static = "1.4.0"
-tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ['json']}
+anyhow = "^1.0.71"
 async-trait = "0.1.68"
-
-[dev-dependencies]
-reqwest = { version = "0.11.18", features = ["json"] }
+clap = { version = "4.0.22", features = ["derive"] }

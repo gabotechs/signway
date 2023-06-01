@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use hyper::body::HttpBody;
 use hyper::Body;
 
-pub async fn body_to_string(mut body: Body, length: usize) -> Result<String> {
+pub(crate) async fn body_to_string(mut body: Body, length: usize) -> Result<String> {
     let mut data = vec![];
 
     let mut chunk = body.data().await;
@@ -17,7 +17,7 @@ pub async fn body_to_string(mut body: Body, length: usize) -> Result<String> {
     Ok(String::from_utf8(data)?)
 }
 
-pub fn string_to_body(str: &str) -> Body {
+pub(crate) fn string_to_body(str: &str) -> Body {
     Body::from(str.to_string())
 }
 

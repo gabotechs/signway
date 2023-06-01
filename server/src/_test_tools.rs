@@ -1,11 +1,13 @@
 use hyper::{Body, Request};
 
 #[cfg(test)]
-pub mod tests {
-    use anyhow::{anyhow, Context};
+pub(crate) mod tests {
     use std::collections::HashMap;
+    use std::convert::Infallible;
     use std::str::FromStr;
 
+    use anyhow::{anyhow, Context};
+    use async_trait::async_trait;
     use hyper::header::HeaderName;
     use hyper::{HeaderMap, Uri};
     use serde::de::DeserializeOwned;
@@ -13,11 +15,12 @@ pub mod tests {
     use url::Url;
 
     use crate::signing::{SignRequest, UrlSigner};
+    use crate::{SecretGetter, SecretGetterResult};
 
     use super::*;
 
     #[derive(Clone, Debug)]
-    pub struct ReqBuilder {
+    pub(crate) struct ReqBuilder {
         method: String,
         query_params: HashMap<String, String>,
         headers: HashMap<String, String>,
@@ -40,11 +43,11 @@ pub mod tests {
     }
 
     impl ReqBuilder {
-        pub fn query(mut self, k: &str, v: &str) -> Self {
+        pub(crate) fn query(mut self, k: &str, v: &str) -> Self {
             self.query_params.insert(k.to_string(), v.to_string());
             self
         }
-        pub fn header(mut self, k: &str, v: &str) -> Self {
+        pub(crate) fn header(mut self, k: &str, v: &str) -> Self {
             self.headers.insert(k.to_string(), v.to_string());
             self
         }
@@ -72,7 +75,7 @@ pub mod tests {
             }
         }
 
-        pub fn build(&self) -> anyhow::Result<Request<Body>> {
+        pub(crate) fn build(&self) -> anyhow::Result<Request<Body>> {
             let body = match &self.body {
                 Some(b) => Body::from(b.to_string()),
                 None => Body::empty(),
@@ -90,7 +93,7 @@ pub mod tests {
                 .body(body)?)
         }
 
-        pub fn sign(mut self, id: &str, secret: &str, host: &str) -> anyhow::Result<Self> {
+        pub(crate) fn sign(mut self, id: &str, secret: &str, host: &str) -> anyhow::Result<Self> {
             let now = OffsetDateTime::now_utc();
             let sign_request = SignRequest {
                 proxy_url: Url::parse(&self.build_uri()?.to_string())?,
@@ -118,19 +121,22 @@ pub mod tests {
             Ok(self)
         }
 
-        pub fn post(mut self) -> Self {
+        pub(crate) fn post(mut self) -> Self {
             self.method = "POST".to_string();
             self.url = "https://postman-echo.com/post".to_string();
             self
         }
 
-        pub fn body(mut self, v: &str) -> Self {
+        pub(crate) fn body(mut self, v: &str) -> Self {
             self.body = Some(v.to_string());
             self
         }
     }
 
-    pub fn json_path<T: DeserializeOwned>(response: &str, path: &[&str]) -> anyhow::Result<T> {
+    pub(crate) fn json_path<T: DeserializeOwned>(
+        response: &str,
+        path: &[&str],
+    ) -> anyhow::Result<T> {
         let mut value = &serde_json::from_str::<serde_json::Value>(response)?;
         for p in path {
             if let Ok(index) = usize::from_str(p) {
@@ -144,5 +150,16 @@ pub mod tests {
             }
         }
         Ok(serde_json::from_value::<T>(value.clone())?)
+    }
+
+    pub(crate) struct InMemorySecretGetter(pub(crate) HashMap<String, SecretGetterResult>);
+
+    #[async_trait]
+    impl SecretGetter for InMemorySecretGetter {
+        type Error = Infallible;
+
+        async fn get_secret(&self, id: &str) -> Result<Option<SecretGetterResult>, Self::Error> {
+            Ok(self.0.get(id).cloned())
+        }
     }
 }

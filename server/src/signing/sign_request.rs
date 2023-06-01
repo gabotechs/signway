@@ -1,17 +1,18 @@
 use std::ops::Add;
 use std::str::FromStr;
 
-use crate::signing::signing_functions::LONG_DATETIME;
 use anyhow::{anyhow, Result};
 use hyper::http::HeaderName;
 use hyper::{HeaderMap, Request};
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use url::Url;
 
+use crate::signing::signing_functions::LONG_DATETIME;
+
 use super::signing_functions;
 
 #[derive(Debug, Clone)]
-pub struct SignRequest {
+pub(crate) struct SignRequest {
     pub proxy_url: Url,
     pub expiry: u32,
     pub datetime: PrimitiveDateTime,
@@ -21,14 +22,14 @@ pub struct SignRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct SignInfo {
+pub(crate) struct SignInfo {
     pub signature: String,
     pub id: String,
     pub include_body: bool,
 }
 
 impl SignRequest {
-    pub fn from_signed_request<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
+    pub(crate) fn from_signed_request<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
         let mut uri = req.uri().to_string();
         // TODO: is there a better way to parse just the query params here?
         if uri.starts_with('/') {
@@ -129,8 +130,9 @@ impl SignRequest {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
     use std::ops::Sub;
+
+    use lazy_static::lazy_static;
 
     use signing_functions::{
         LONG_DATETIME, X_ALGORITHM, X_CREDENTIAL, X_DATE, X_EXPIRES, X_PROXY, X_SIGNATURE,

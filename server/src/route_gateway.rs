@@ -1,6 +1,6 @@
-use anyhow::anyhow;
 use std::str::FromStr;
 
+use anyhow::anyhow;
 use hyper::body::Body;
 use hyper::{Request, Response, StatusCode, Uri};
 use hyper_tls::HttpsConnector;
@@ -8,7 +8,7 @@ use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
 use crate::secret_getter::SecretGetter;
-use crate::server::Server;
+use crate::server::SignwayServer;
 use crate::signing::{SignRequest, UrlSigner};
 
 fn bad_request(e: impl Into<anyhow::Error>) -> Response<Body> {
@@ -36,7 +36,7 @@ fn bad_gateway(e: impl Into<anyhow::Error>) -> Response<Body> {
         .unwrap()
 }
 
-impl<T: SecretGetter> Server<T> {
+impl<T: SecretGetter> SignwayServer<T> {
     fn parse_content_length<B>(req: &Request<B>) -> anyhow::Result<usize> {
         let content_length = req
             .headers()
@@ -45,7 +45,10 @@ impl<T: SecretGetter> Server<T> {
         Ok(usize::from_str(content_length.to_str()?)?)
     }
 
-    pub async fn route_gateway(&self, mut req: Request<Body>) -> hyper::Result<Response<Body>> {
+    pub(crate) async fn route_gateway(
+        &self,
+        mut req: Request<Body>,
+    ) -> hyper::Result<Response<Body>> {
         let (mut to_sign, info) = match SignRequest::from_signed_request(&req) {
             Ok((a, b)) => (a, b),
             Err(e) => return Ok(bad_request(e)),
@@ -53,7 +56,7 @@ impl<T: SecretGetter> Server<T> {
 
         let secret = match self.secret_getter.get_secret(&info.id).await {
             Ok(a) => a,
-            Err(e) => return Ok(internal_server(e)),
+            Err(e) => return Ok(internal_server(anyhow!("{e}"))),
         };
 
         let Some(secret) = secret else {
@@ -114,16 +117,19 @@ impl<T: SecretGetter> Server<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::_test_tools::tests::{json_path, ReqBuilder};
-    use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
-    use crate::signing::X_PROXY;
-    use hyper::HeaderMap;
     use std::collections::HashMap;
+
+    use hyper::HeaderMap;
     use url::Url;
 
-    fn server() -> Server<InMemorySecretGetter> {
-        Server {
+    use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
+    use crate::secret_getter::SecretGetterResult;
+    use crate::signing::X_PROXY;
+
+    use super::*;
+
+    fn server() -> SignwayServer<InMemorySecretGetter> {
+        SignwayServer {
             port: 0,
             self_host: Url::parse("http://localhost").unwrap(),
             secret_getter: InMemorySecretGetter(HashMap::from([(

@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use time::{macros::format_description, PrimitiveDateTime};
 use url::Url;
 
-pub const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
+pub(crate) const LONG_DATETIME: &[time::format_description::FormatItem<'static>] =
     format_description!("[year][month][day]T[hour][minute][second]Z");
 
 const SHORT_DATE: &[time::format_description::FormatItem<'static>] =
@@ -51,24 +51,24 @@ const FRAGMENT: &AsciiSet = &CONTROLS
 
 const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
 
-pub const X_ALGORITHM: &str = "X-Sup-Algorithm";
+pub(crate) const X_ALGORITHM: &str = "X-Sup-Algorithm";
 const ALGORITHM: &str = "SUP1-HMAC-SHA256";
-pub const X_CREDENTIAL: &str = "X-Sup-Credential";
-pub const X_DATE: &str = "X-Sup-Date";
-pub const X_EXPIRES: &str = "X-Sup-Expires";
-pub const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
-pub const X_SIGNED_BODY: &str = "X-Sup-Body";
-pub const X_PROXY: &str = "X-Sup-Proxy";
-pub const X_SIGNATURE: &str = "X-Sup-Signature";
+pub(crate) const X_CREDENTIAL: &str = "X-Sup-Credential";
+pub(crate) const X_DATE: &str = "X-Sup-Date";
+pub(crate) const X_EXPIRES: &str = "X-Sup-Expires";
+pub(crate) const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
+pub(crate) const X_SIGNED_BODY: &str = "X-Sup-Body";
+pub(crate) const X_PROXY: &str = "X-Sup-Proxy";
+pub(crate) const X_SIGNATURE: &str = "X-Sup-Signature";
 
 /// This is actually just the path part of the uri, not the full uri
-pub fn canonical_uri_string(uri: &Url) -> String {
+pub(crate) fn canonical_uri_string(uri: &Url) -> String {
     let decoded = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
     utf8_percent_encode(&decoded, FRAGMENT).to_string()
 }
 
 /// These are the query params of the uri
-pub fn canonical_query_string(uri: &Url) -> String {
+pub(crate) fn canonical_query_string(uri: &Url) -> String {
     let mut params: Vec<(String, String)> = uri
         .query_pairs()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -87,7 +87,7 @@ pub fn canonical_query_string(uri: &Url) -> String {
     params.join("&")
 }
 
-pub fn canonical_header_string(headers: &HeaderMap) -> String {
+pub(crate) fn canonical_header_string(headers: &HeaderMap) -> String {
     let mut keyvalues = headers
         .iter()
         .map(|(key, value)| key.as_str().to_lowercase() + ":" + value.to_str().unwrap().trim())
@@ -96,7 +96,7 @@ pub fn canonical_header_string(headers: &HeaderMap) -> String {
     keyvalues.join("\n")
 }
 
-pub fn signed_header_string(headers: &HeaderMap) -> String {
+pub(crate) fn signed_header_string(headers: &HeaderMap) -> String {
     let mut keys = headers
         .keys()
         .map(|key| key.as_str().to_lowercase())
@@ -105,7 +105,12 @@ pub fn signed_header_string(headers: &HeaderMap) -> String {
     keys.join(";")
 }
 
-pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, body: &str) -> String {
+pub(crate) fn canonical_request(
+    method: &str,
+    url: &Url,
+    headers: &HeaderMap,
+    body: &str,
+) -> String {
     format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{body}",
         uri = canonical_uri_string(url),
@@ -115,11 +120,11 @@ pub fn canonical_request(method: &str, url: &Url, headers: &HeaderMap, body: &st
     )
 }
 
-pub fn scope_string(datetime: &PrimitiveDateTime) -> String {
+pub(crate) fn scope_string(datetime: &PrimitiveDateTime) -> String {
     datetime.format(SHORT_DATE).unwrap()
 }
 
-pub fn string_to_sign(datetime: &PrimitiveDateTime, canonical_req: &str) -> String {
+pub(crate) fn string_to_sign(datetime: &PrimitiveDateTime, canonical_req: &str) -> String {
     let mut hasher = Sha256::default();
     hasher.update(canonical_req.as_bytes());
     format!(
@@ -130,14 +135,14 @@ pub fn string_to_sign(datetime: &PrimitiveDateTime, canonical_req: &str) -> Stri
     )
 }
 
-pub fn signing_key(datetime: &PrimitiveDateTime, secret_key: &str) -> Result<Vec<u8>> {
+pub(crate) fn signing_key(datetime: &PrimitiveDateTime, secret_key: &str) -> Result<Vec<u8>> {
     let secret = format!("{ALGORITHM}{secret_key}");
     let mut date_hmac = HmacSha256::new_from_slice(secret.as_bytes())?;
     date_hmac.update(datetime.format(SHORT_DATE).unwrap().as_bytes());
     Ok(date_hmac.finalize().into_bytes().to_vec())
 }
 
-pub fn authorization_query_params_no_sig(
+pub(crate) fn authorization_query_params_no_sig(
     access_key: &str,
     datetime: &PrimitiveDateTime,
     expires: u32,

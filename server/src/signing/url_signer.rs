@@ -12,14 +12,14 @@ use crate::signing::signing_functions;
 
 type HmacSha256 = Hmac<Sha256>;
 
-pub struct UrlSigner {
+pub(crate) struct UrlSigner {
     id: String,
     secret: String,
     host: Url,
 }
 
 impl UrlSigner {
-    pub fn new(id: &str, secret: &str, host: Url) -> Self {
+    pub(crate) fn new(id: &str, secret: &str, host: Url) -> Self {
         Self {
             id: id.to_string(),
             secret: secret.to_string(),
@@ -54,7 +54,7 @@ impl UrlSigner {
         ))
     }
 
-    pub fn get_signature(&self, req: &SignRequest) -> Result<String> {
+    pub(crate) fn get_signature(&self, req: &SignRequest) -> Result<String> {
         let canonical_request = self.canonical_request(req)?;
         let to_sign = signing_functions::string_to_sign(&req.datetime, &canonical_request);
 
@@ -65,7 +65,8 @@ impl UrlSigner {
         Ok(signature)
     }
 
-    pub fn get_signed_url(&self, req: &SignRequest) -> Result<String> {
+    #[cfg(test)]
+    pub(crate) fn get_signed_url(&self, req: &SignRequest) -> Result<String> {
         Ok(format!(
             "{}&{}={}",
             self.url_no_signed(req)?,
