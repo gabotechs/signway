@@ -4,20 +4,23 @@ use std::str::FromStr;
 use hyper::body::Body;
 use hyper::{Request, Response, StatusCode, Uri};
 use hyper_tls::HttpsConnector;
+use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
 use crate::secret_getter::SecretGetter;
 use crate::server::Server;
 use crate::signing::{SignRequest, UrlSigner};
 
-fn bad_request() -> Response<Body> {
+fn bad_request(e: impl Into<anyhow::Error>) -> Response<Body> {
+    info!("Answering bad request: {}", e.into());
     Response::builder()
         .status(StatusCode::BAD_REQUEST)
         .body(Body::empty())
         .unwrap()
 }
 
-fn internal_server(_e: impl Into<anyhow::Error>) -> Response<Body> {
+fn internal_server(e: impl Into<anyhow::Error>) -> Response<Body> {
+    error!("Answering internal server error: {}", e.into());
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(Body::empty())
@@ -25,9 +28,11 @@ fn internal_server(_e: impl Into<anyhow::Error>) -> Response<Body> {
 }
 
 fn bad_gateway(e: impl Into<anyhow::Error>) -> Response<Body> {
+    let err = e.into();
+    error!("Answering bad gateway {}", err);
     Response::builder()
         .status(StatusCode::BAD_GATEWAY)
-        .body(string_to_body(&e.into().to_string()))
+        .body(string_to_body(&err.to_string()))
         .unwrap()
 }
 
@@ -43,7 +48,7 @@ impl<T: SecretGetter> Server<T> {
     pub async fn route_gateway(&self, mut req: Request<Body>) -> hyper::Result<Response<Body>> {
         let (mut to_sign, info) = match SignRequest::from_signed_request(&req) {
             Ok((a, b)) => (a, b),
-            Err(_) => return Ok(bad_request()),
+            Err(e) => return Ok(bad_request(e)),
         };
 
         let secret = match self.secret_getter.get_secret(&info.id).await {
@@ -52,7 +57,7 @@ impl<T: SecretGetter> Server<T> {
         };
 
         let Some(secret) = secret else {
-            return Ok(bad_request());
+            return Ok(bad_request(anyhow!("Missing secret")));
         };
 
         let signer = UrlSigner::new(&info.id, &secret, self.self_host.clone());
@@ -60,25 +65,25 @@ impl<T: SecretGetter> Server<T> {
         if info.include_body {
             let content_length = match Self::parse_content_length(&req) {
                 Ok(a) => a,
-                Err(_) => return Ok(bad_request()),
+                Err(e) => return Ok(bad_request(e)),
             };
             let (parts, body) = req.into_parts();
             let body = match body_to_string(body, content_length).await {
                 Ok(a) => a,
-                Err(_) => return Ok(bad_request()),
+                Err(e) => return Ok(bad_request(e)),
             };
-            to_sign.body = Some(body.clone());
-            req = Request::from_parts(parts, string_to_body(&body))
+            req = Request::from_parts(parts, string_to_body(&body));
+            to_sign.body = Some(body);
         }
 
         let Some(host) = to_sign.proxy_url.host() else {
-            return Ok(bad_request())
+            return Ok(bad_request(anyhow!("Invalid host in proxy url")))
         };
         let host = host.to_string();
 
         let proxy_uri = match Uri::from_str(to_sign.proxy_url.as_str()) {
             Ok(a) => a,
-            Err(_) => return Ok(bad_request()),
+            Err(e) => return Ok(bad_request(e)),
         };
         *req.uri_mut() = proxy_uri;
         req.headers_mut().insert("host", host.parse().unwrap());
@@ -90,7 +95,7 @@ impl<T: SecretGetter> Server<T> {
         };
 
         if declared_signature != &actual_signature {
-            return Ok(bad_request());
+            return Ok(bad_request(anyhow!("signature mismatch")));
         }
 
         let https = HttpsConnector::new();
