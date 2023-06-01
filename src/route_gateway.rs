@@ -99,6 +99,10 @@ impl<T: SecretGetter> Server<T> {
             return Ok(bad_request(anyhow!("signature mismatch")));
         }
 
+        info!(
+            "Id {} provided a valid signature, redirecting the request...",
+            info.id
+        );
         let https = HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, Body>(https);
         match client.request(req).await {
