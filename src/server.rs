@@ -62,10 +62,11 @@ mod tests {
     use std::collections::HashMap;
 
     use hyper::StatusCode;
+    use reqwest::header::HeaderMap;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::secret_getter::InMemorySecretGetter;
+    use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
     use crate::signing::{SignRequest, UrlSigner};
 
     use super::*;
@@ -76,9 +77,15 @@ mod tests {
         Server {
             port: 3000,
             self_host: Url::parse("http://localhost:3000").unwrap(),
-            secret_getter: InMemorySecretGetter(HashMap::from(
-                config.map(|e| (e.0.to_string(), e.1.to_string())),
-            )),
+            secret_getter: InMemorySecretGetter(HashMap::from(config.map(|e| {
+                (
+                    e.0.to_string(),
+                    SecretGetterResult {
+                        secret: e.1.to_string(),
+                        headers_extension: HeaderMap::new(),
+                    },
+                )
+            }))),
         }
     }
 

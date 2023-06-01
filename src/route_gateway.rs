@@ -60,7 +60,7 @@ impl<T: SecretGetter> Server<T> {
             return Ok(bad_request(anyhow!("Missing secret")));
         };
 
-        let signer = UrlSigner::new(&info.id, &secret, self.self_host.clone());
+        let signer = UrlSigner::new(&info.id, &secret.secret, self.self_host.clone());
 
         if info.include_body {
             let content_length = match Self::parse_content_length(&req) {
@@ -87,6 +87,7 @@ impl<T: SecretGetter> Server<T> {
         };
         *req.uri_mut() = proxy_uri;
         req.headers_mut().insert("host", host.parse().unwrap());
+        req.headers_mut().extend(secret.headers_extension);
 
         let declared_signature = &info.signature;
         let actual_signature = match signer.get_signature(&to_sign) {
@@ -111,8 +112,9 @@ impl<T: SecretGetter> Server<T> {
 mod tests {
     use super::*;
     use crate::_test_tools::tests::{json_path, ReqBuilder};
-    use crate::secret_getter::InMemorySecretGetter;
+    use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
     use crate::signing::X_PROXY;
+    use hyper::HeaderMap;
     use std::collections::HashMap;
     use url::Url;
 
@@ -122,7 +124,14 @@ mod tests {
             self_host: Url::parse("http://localhost").unwrap(),
             secret_getter: InMemorySecretGetter(HashMap::from([(
                 "foo".to_string(),
-                "bar".to_string(),
+                SecretGetterResult {
+                    secret: "bar".to_string(),
+                    headers_extension: HeaderMap::try_from(&HashMap::from([(
+                        "X-Custom".to_string(),
+                        "custom".to_string(),
+                    )]))
+                    .unwrap(),
+                },
             )])),
         }
     }
@@ -145,7 +154,11 @@ mod tests {
         assert_eq!(
             json_path::<String>(&response, &["url"]).unwrap(),
             "https://postman-echo.com/get"
-        )
+        );
+        assert_eq!(
+            json_path::<String>(&response, &["headers", "x-custom"]).unwrap(),
+            "custom"
+        );
     }
 
     #[tokio::test]

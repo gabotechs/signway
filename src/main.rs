@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use hyper::HeaderMap;
 
-use crate::secret_getter::InMemorySecretGetter;
+use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
 use crate::server::Server;
 
 #[cfg(test)]
@@ -15,7 +16,10 @@ mod signing;
 async fn main() {
     let server = Server::from_env(InMemorySecretGetter(HashMap::from([(
         "foo".to_string(),
-        "bar".to_string(),
+        SecretGetterResult {
+            secret: "bar".to_string(),
+            headers_extension: HeaderMap::new()
+        },
     )])))
     .expect("failure creating server from env");
     server.start().await.expect("TODO: panic message");
