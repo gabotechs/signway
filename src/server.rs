@@ -6,6 +6,7 @@ use std::u16;
 use anyhow::Result;
 use hyper::service::service_fn;
 use tokio::net::TcpListener;
+use tracing::{error, info};
 use url::Url;
 
 use crate::secret_getter::SecretGetter;
@@ -34,7 +35,7 @@ impl<T: SecretGetter> Server<T> {
 
         let arc_self = Arc::new(self);
         let listener = TcpListener::bind(in_addr).await?;
-        println!("Server running in {}", in_addr);
+        info!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
 
@@ -50,7 +51,7 @@ impl<T: SecretGetter> Server<T> {
                     .serve_connection(stream, service)
                     .await
                 {
-                    println!("Failed to serve the connection: {:?}", err);
+                    error!("Failed to serve the connection: {:?}", err);
                 }
             });
         }

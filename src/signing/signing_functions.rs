@@ -61,11 +61,13 @@ pub const X_SIGNED_BODY: &str = "X-Sup-Body";
 pub const X_PROXY: &str = "X-Sup-Proxy";
 pub const X_SIGNATURE: &str = "X-Sup-Signature";
 
+/// This is actually just the path part of the uri, not the full uri
 pub fn canonical_uri_string(uri: &Url) -> String {
     let decoded = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
     utf8_percent_encode(&decoded, FRAGMENT).to_string()
 }
 
+/// These are the query params of the uri
 pub fn canonical_query_string(uri: &Url) -> String {
     let mut params: Vec<(String, String)> = uri
         .query_pairs()

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use hyper::HeaderMap;
+use std::collections::HashMap;
 
 use crate::secret_getter::{InMemorySecretGetter, SecretGetterResult};
 use crate::server::Server;
@@ -18,7 +18,7 @@ async fn main() {
         "foo".to_string(),
         SecretGetterResult {
             secret: "bar".to_string(),
-            headers_extension: HeaderMap::new()
+            headers_extension: HeaderMap::new(),
         },
     )])))
     .expect("failure creating server from env");

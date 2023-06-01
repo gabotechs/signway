@@ -46,16 +46,10 @@ impl UrlSigner {
     }
 
     fn canonical_request(&self, req: &SignRequest) -> Result<String> {
-        let mut headers = HeaderMap::new();
-        if let Some(custom_headers) = &req.headers {
-            for (k, v) in custom_headers.iter() {
-                headers.insert(k.clone(), v.clone());
-            }
-        }
         Ok(signing_functions::canonical_request(
             &req.method,
             &self.url_no_signed(req)?,
-            &headers,
+            &req.headers.clone().unwrap_or(HeaderMap::new()),
             req.body.as_ref().unwrap_or(&String::new()),
         ))
     }
@@ -64,10 +58,8 @@ impl UrlSigner {
         let canonical_request = self.canonical_request(req)?;
         let to_sign = signing_functions::string_to_sign(&req.datetime, &canonical_request);
 
-        let mut hmac = HmacSha256::new_from_slice(&signing_functions::signing_key(
-            &req.datetime,
-            &self.secret,
-        )?)?;
+        let signing_key = &signing_functions::signing_key(&req.datetime, &self.secret)?;
+        let mut hmac = HmacSha256::new_from_slice(signing_key)?;
         hmac.update(to_sign.as_bytes());
         let signature = hex::encode(hmac.finalize().into_bytes());
         Ok(signature)
