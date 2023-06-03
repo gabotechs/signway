@@ -3,7 +3,6 @@ use std::str::FromStr;
 use anyhow::anyhow;
 use hyper::body::Body;
 use hyper::{Request, Response, StatusCode, Uri};
-use hyper_tls::HttpsConnector;
 use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
@@ -106,9 +105,7 @@ impl<T: SecretGetter> SignwayServer<T> {
             "Id {} provided a valid signature, redirecting the request...",
             info.id
         );
-        let https = HttpsConnector::new();
-        let client = hyper::Client::builder().build::<_, Body>(https);
-        match client.request(req).await {
+        match self.client.request(req).await {
             Ok(a) => Ok(a),
             Err(e) => Ok(bad_gateway(e)),
         }
