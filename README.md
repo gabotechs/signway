@@ -68,13 +68,13 @@ from APIs that send you data chunk by chunk.
 
 The signing algorithm is inspired strongly by [AWS signature v4](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html),
 the same that [s3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html)
-uses for generated pre-signed URLs for letting clients interact with buckets directly.
+uses for generating pre-signed URLs for letting clients interact with buckets directly.
 
 Generating a signed URL requires that the signer (usually an application's backend) knows a public `id` and a private `secret`. 
 The `id` will live in plain text in the signed URL, and the `secret` will be used for creating the request's
 signature, but it is not included in the URL.
 
 Signway, who knows which `secret` is associated to which `id`, will take the request and
-recalculate its signature. If the declared signature in the calculated signature match, and the request has not expired,
+recalculate its signature. If the declared signature and the calculated one match, and the request has not expired,
 it will redirect the request to the specified third party API, adding any preconfigured headers for that `id`, like API tokens.
 
