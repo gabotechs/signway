@@ -2,7 +2,7 @@
 name = "signway-server"
 version = "0.1.2"
 description = "A gateway for redirecting authentic signed URLs to the requested API"
-license = "ELv2"
+license = "AGPL"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
