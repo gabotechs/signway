@@ -8,14 +8,14 @@ pub(crate) mod tests {
 
     use anyhow::{anyhow, Context};
     use async_trait::async_trait;
-    use hyper::header::HeaderName;
     use hyper::{HeaderMap, Uri};
+    use hyper::header::HeaderName;
     use serde::de::DeserializeOwned;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::signing::{ElementsToSign, UrlSigner};
     use crate::{SecretGetter, SecretGetterResult};
+    use crate::signing::{ElementsToSign, UrlSigner};
 
     use super::*;
 

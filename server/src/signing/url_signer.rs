@@ -6,8 +6,9 @@ use hmac::Mac;
 use hyper::{HeaderMap, Uri};
 use sha2::Sha256;
 
-use super::unverified_signed_request::ElementsToSign;
 use crate::signing::signing_functions;
+
+use super::unverified_signed_request::ElementsToSign;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -74,9 +75,10 @@ impl UrlSigner {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
+
+    use super::*;
 
     fn base_request() -> ElementsToSign {
         let epoch = OffsetDateTime::UNIX_EPOCH;

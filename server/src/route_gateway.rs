@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use hyper::body::Body;
 use hyper::{Request, Response, StatusCode, Uri};
+use hyper::body::Body;
 use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
@@ -138,7 +138,7 @@ mod tests {
 
     use hyper::HeaderMap;
 
-    use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
+    use crate::_test_tools::tests::{InMemorySecretGetter, json_path, ReqBuilder};
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::X_PROXY;
 

@@ -1,3 +1,6 @@
+pub use secret_getter::*;
+pub use server::*;
+
 #[cfg(test)]
 mod _test_tools;
 
@@ -8,5 +11,3 @@ mod server;
 mod signing;
 mod gateway_middleware;
 
-pub use secret_getter::*;
-pub use server::*;

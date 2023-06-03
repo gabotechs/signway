@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::u16;
 
-use crate::gateway_middleware::{GatewayMiddleware, GatewayMiddlewareResponse};
 use anyhow::Result;
 use async_trait::async_trait;
 use hyper::client::HttpConnector;
@@ -14,6 +13,7 @@ use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
+use crate::gateway_middleware::{GatewayMiddleware, GatewayMiddlewareResponse};
 use crate::secret_getter::SecretGetter;
 use crate::signing::UnverifiedSignedRequest;
 

@@ -1,12 +1,11 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-
+pub use hyper::HeaderMap;
 // TODO: I am force to expose this, but I think I shouldn't,
 //  maybe a good way of doing this is to hide this types and provide
 //  a constructor from a Hashmap or something like that.
 pub use hyper::http::{HeaderName, HeaderValue};
-pub use hyper::HeaderMap;
 
 #[derive(Clone)]
 pub struct SecretGetterResult {

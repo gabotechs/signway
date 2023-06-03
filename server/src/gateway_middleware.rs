@@ -1,7 +1,9 @@
-use crate::signing::UnverifiedSignedRequest;
+use std::fmt::Display;
+
 use async_trait::async_trait;
 pub use hyper::StatusCode;
-use std::fmt::Display;
+
+use crate::signing::UnverifiedSignedRequest;
 
 /// Response from a gateway middleware. This response is
 /// optional, if a gateway middleware decided to return
