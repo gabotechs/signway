@@ -44,14 +44,14 @@ The schema using Signway looks like this:
 ```mermaid
 sequenceDiagram
     participant frontend
-    participant backend
+    participant serverless backend
     participant Signway
     participant third_party api
 
-    frontend->>+backend: request
-    backend->>backend: authentication
-    backend->>backend: create signed url using an "id" and a "secret"
-    backend->>-frontend: signed URL
+    frontend->>+serverless backend: request
+    serverless backend->>serverless backend: authentication
+    serverless backend->>serverless backend: create signed url using an "id" and a "secret"
+    serverless backend->>-frontend: signed URL
     frontend->>+Signway: signed URL + request
     Signway->>Signway: verify signature for "id" using "secret"
     Signway->>+third_party api: request + API token
