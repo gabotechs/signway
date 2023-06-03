@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::Add;
 use std::str::FromStr;
 
@@ -7,9 +8,10 @@ use hyper::{HeaderMap, Request};
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use url::Url;
 
-use crate::signing::signing_functions::LONG_DATETIME;
-
-use super::signing_functions;
+use crate::signing::signing_functions::{
+    LONG_DATETIME, X_ALGORITHM, X_CREDENTIAL, X_DATE, X_EXPIRES, X_PROXY, X_SIGNATURE,
+    X_SIGNED_BODY, X_SIGNED_HEADERS,
+};
 
 /// Elements from a request that participate in the signing.
 #[derive(Debug, Clone)]
@@ -42,39 +44,37 @@ impl UnverifiedSignedRequest {
     pub(crate) fn from_request<T>(req: &Request<T>) -> Result<UnverifiedSignedRequest> {
         let query_params = url::form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes());
 
-        let mut x_algorithm: Option<String> = None;
-        let mut x_credential: Option<String> = None;
-        let mut x_date: Option<String> = None;
-        let mut x_expires: Option<String> = None;
-        let mut x_signed_headers: Option<String> = None;
+        let mut x_algorithm: Option<Cow<str>> = None;
+        let mut x_credential: Option<Cow<str>> = None;
+        let mut x_date: Option<Cow<str>> = None;
+        let mut x_expires: Option<Cow<str>> = None;
+        let mut x_signed_headers: Option<Cow<str>> = None;
         let mut x_signed_body: Option<bool> = None;
-        let mut x_proxy: Option<String> = None;
-        let mut x_signature: Option<String> = None;
+        let mut x_proxy: Option<Cow<str>> = None;
+        let mut x_signature: Option<Cow<str>> = None;
         for (k, v) in query_params {
             match k.as_ref() {
-                signing_functions::X_ALGORITHM => x_algorithm = Some(v.to_string()),
-                signing_functions::X_CREDENTIAL => x_credential = Some(v.to_string()),
-                signing_functions::X_EXPIRES => x_expires = Some(v.to_string()),
-                signing_functions::X_DATE => x_date = Some(v.to_string()),
-                signing_functions::X_SIGNED_HEADERS => x_signed_headers = Some(v.to_string()),
-                signing_functions::X_PROXY => x_proxy = Some(v.to_string()),
-                signing_functions::X_SIGNED_BODY => x_signed_body = Some(&v == "true"),
-                signing_functions::X_SIGNATURE => x_signature = Some(v.to_string()),
+                X_ALGORITHM => x_algorithm = Some(v),
+                X_CREDENTIAL => x_credential = Some(v),
+                X_EXPIRES => x_expires = Some(v),
+                X_DATE => x_date = Some(v),
+                X_SIGNED_HEADERS => x_signed_headers = Some(v),
+                X_PROXY => x_proxy = Some(v),
+                X_SIGNED_BODY => x_signed_body = Some(v == "true"),
+                X_SIGNATURE => x_signature = Some(v),
                 _ => {}
             }
         }
 
         if x_algorithm.is_none() {
-            return Err(anyhow!("missing {}", signing_functions::X_ALGORITHM));
+            return Err(anyhow!("missing {X_ALGORITHM}"));
         }
 
-        let datetime = x_date.ok_or_else(|| anyhow!("missing {}", signing_functions::X_DATE))?;
+        let datetime = x_date.ok_or_else(|| anyhow!("missing {X_DATE}"))?;
         let datetime = PrimitiveDateTime::parse(&datetime, LONG_DATETIME)?;
 
-        let expiry =
-            x_expires.ok_or_else(|| anyhow!("missing {}", signing_functions::X_EXPIRES))?;
-        let expiry = u32::from_str(&expiry)
-            .map_err(|_| anyhow!("invalid {}", signing_functions::X_EXPIRES))?;
+        let expiry = x_expires.ok_or_else(|| anyhow!("missing {X_EXPIRES}"))?;
+        let expiry = u32::from_str(&expiry).map_err(|_| anyhow!("invalid {X_EXPIRES}"))?;
 
         let now = OffsetDateTime::now_utc();
         let now = PrimitiveDateTime::new(now.date(), now.time());
@@ -83,8 +83,8 @@ impl UnverifiedSignedRequest {
             return Err(anyhow!("Request has expired"));
         }
 
-        let signed_headers = x_signed_headers
-            .ok_or_else(|| anyhow!("missing {}", signing_functions::X_SIGNED_HEADERS))?;
+        let signed_headers =
+            x_signed_headers.ok_or_else(|| anyhow!("missing {X_SIGNED_HEADERS}"))?;
 
         let mut headers = HeaderMap::new();
         // TODO: where does this come from
@@ -99,9 +99,7 @@ impl UnverifiedSignedRequest {
         }
 
         let elements = ElementsToSign {
-            proxy_url: Url::parse(
-                &x_proxy.ok_or_else(|| anyhow!("missing {}", signing_functions::X_PROXY))?,
-            )?,
+            proxy_url: Url::parse(&x_proxy.ok_or_else(|| anyhow!("missing {X_PROXY}"))?)?,
             expiry,
             datetime,
             method: req.method().to_string(),
@@ -109,24 +107,23 @@ impl UnverifiedSignedRequest {
             body: None,
         };
 
-        let credential =
-            x_credential.ok_or_else(|| anyhow!("missing {}", signing_functions::X_CREDENTIAL))?;
+        let credential = x_credential.ok_or_else(|| anyhow!("missing {X_CREDENTIAL}"))?;
         let credential_parts = credential.split('/'); // TODO: where does this come from
         let id = credential_parts
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("invalid {}", signing_functions::X_CREDENTIAL))?;
+            .ok_or_else(|| anyhow!("invalid {X_CREDENTIAL}"))?;
 
         if id.is_empty() {
-            return Err(anyhow!("invalid {}", signing_functions::X_CREDENTIAL));
+            return Err(anyhow!("invalid {X_CREDENTIAL}"));
         }
-
+        let signature = x_signature
+            .ok_or_else(|| anyhow!("missing {X_SIGNATURE}"))?
+            .to_string();
         let info = SignInfo {
-            signature: x_signature
-                .ok_or_else(|| anyhow!("missing {}", signing_functions::X_SIGNATURE))?,
+            signature,
             id: id.to_string(),
-            body_is_pending: x_signed_body
-                .ok_or_else(|| anyhow!("missing {}", signing_functions::X_SIGNED_BODY))?,
+            body_is_pending: x_signed_body.ok_or_else(|| anyhow!("missing {X_SIGNED_BODY}"))?,
         };
 
         Ok(UnverifiedSignedRequest { elements, info })
@@ -138,11 +135,6 @@ mod tests {
     use std::ops::Sub;
 
     use lazy_static::lazy_static;
-
-    use signing_functions::{
-        LONG_DATETIME, X_ALGORITHM, X_CREDENTIAL, X_DATE, X_EXPIRES, X_PROXY, X_SIGNATURE,
-        X_SIGNED_BODY, X_SIGNED_HEADERS,
-    };
 
     use crate::body::string_to_body;
 
