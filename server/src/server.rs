@@ -8,12 +8,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use hyper::client::HttpConnector;
 use hyper::service::service_fn;
-use hyper::{Body, Request};
+use hyper::Body;
 use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::secret_getter::SecretGetter;
+use crate::signing::UnverifiedSignedRequest;
 
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
@@ -26,7 +27,7 @@ pub(crate) struct NoneGatewayMiddleware;
 
 #[async_trait]
 impl GatewayMiddleware for NoneGatewayMiddleware {
-    async fn on_req(&self, _req: &Request<Body>) {}
+    async fn on_req(&self, _req: &UnverifiedSignedRequest) {}
 }
 
 impl<T: SecretGetter> SignwayServer<T> {
@@ -88,7 +89,7 @@ mod tests {
 
     use crate::_test_tools::tests::InMemorySecretGetter;
     use crate::secret_getter::SecretGetterResult;
-    use crate::signing::{SignRequest, UrlSigner};
+    use crate::signing::{ElementsToSign, UrlSigner};
 
     use super::*;
 
@@ -106,10 +107,10 @@ mod tests {
         }))))
     }
 
-    fn base_request() -> SignRequest {
+    fn base_request() -> ElementsToSign {
         let now = OffsetDateTime::now_utc();
 
-        SignRequest {
+        ElementsToSign {
             proxy_url: Url::parse("https://postman-echo.com/get").unwrap(),
             expiry: 10,
             datetime: PrimitiveDateTime::new(now.date(), now.time()),

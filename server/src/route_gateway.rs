@@ -8,7 +8,7 @@ use tracing::{error, info};
 use crate::body::{body_to_string, string_to_body};
 use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
-use crate::signing::{SignRequest, UrlSigner};
+use crate::signing::{UnverifiedSignedRequest, UrlSigner};
 
 fn bad_request(e: impl Into<anyhow::Error>) -> Response<Body> {
     info!("Answering bad request: {}", e.into());
@@ -48,12 +48,16 @@ impl<T: SecretGetter> SignwayServer<T> {
         &self,
         mut req: Request<Body>,
     ) -> hyper::Result<Response<Body>> {
-        let (mut to_sign, info) = match SignRequest::from_signed_request(&req) {
-            Ok((a, b)) => (a, b),
+        let mut unverified_signed_request = match UnverifiedSignedRequest::from_request(&req) {
+            Ok(a) => a,
             Err(e) => return Ok(bad_request(e)),
         };
 
-        let secret = match self.secret_getter.get_secret(&info.id).await {
+        let secret = match self
+            .secret_getter
+            .get_secret(&unverified_signed_request.info.id)
+            .await
+        {
             Ok(a) => a,
             Err(e) => return Ok(internal_server(anyhow!("{e}"))),
         };
@@ -62,9 +66,9 @@ impl<T: SecretGetter> SignwayServer<T> {
             return Ok(bad_request(anyhow!("Missing secret")));
         };
 
-        let signer = UrlSigner::new(&info.id, &secret.secret);
+        let signer = UrlSigner::new(&unverified_signed_request.info.id, &secret.secret);
 
-        if info.include_body {
+        if unverified_signed_request.info.body_is_pending {
             let content_length = match Self::parse_content_length(&req) {
                 Ok(a) => a,
                 Err(e) => return Ok(bad_request(e)),
@@ -75,15 +79,15 @@ impl<T: SecretGetter> SignwayServer<T> {
                 Err(e) => return Ok(bad_request(e)),
             };
             req = Request::from_parts(parts, string_to_body(&body));
-            to_sign.body = Some(body);
+            unverified_signed_request.elements.body = Some(body);
         }
 
-        let Some(host) = to_sign.proxy_url.host() else {
+        let Some(host) = unverified_signed_request.elements.proxy_url.host() else {
             return Ok(bad_request(anyhow!("Invalid host in proxy url")))
         };
         let host = host.to_string();
 
-        let proxy_uri = match Uri::from_str(to_sign.proxy_url.as_str()) {
+        let proxy_uri = match Uri::from_str(unverified_signed_request.elements.proxy_url.as_str()) {
             Ok(a) => a,
             Err(e) => return Ok(bad_request(e)),
         };
@@ -91,8 +95,8 @@ impl<T: SecretGetter> SignwayServer<T> {
         req.headers_mut().insert("host", host.parse().unwrap());
         req.headers_mut().extend(secret.headers_extension);
 
-        let declared_signature = &info.signature;
-        let actual_signature = match signer.get_signature(&to_sign) {
+        let declared_signature = &unverified_signed_request.info.signature;
+        let actual_signature = match signer.get_signature(&unverified_signed_request.elements) {
             Ok(a) => a,
             Err(e) => return Ok(internal_server(e)),
         };
@@ -103,7 +107,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 
         info!(
             "Id {} provided a valid signature, redirecting the request...",
-            info.id
+            unverified_signed_request.info.id
         );
         match self.client.request(req).await {
             Ok(a) => Ok(a),

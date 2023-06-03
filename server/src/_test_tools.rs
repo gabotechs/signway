@@ -14,7 +14,7 @@ pub(crate) mod tests {
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::signing::{SignRequest, UrlSigner};
+    use crate::signing::{ElementsToSign, UrlSigner};
     use crate::{SecretGetter, SecretGetterResult};
 
     use super::*;
@@ -95,7 +95,7 @@ pub(crate) mod tests {
 
         pub(crate) fn sign(mut self, id: &str, secret: &str, host: &str) -> anyhow::Result<Self> {
             let now = OffsetDateTime::now_utc();
-            let sign_request = SignRequest {
+            let sign_request = ElementsToSign {
                 proxy_url: Url::parse(&self.build_uri()?.to_string())?,
                 expiry: self.expiry,
                 datetime: PrimitiveDateTime::new(now.date(), now.time()),
