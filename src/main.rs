@@ -73,6 +73,6 @@ async fn main() -> anyhow::Result<()> {
     let args: Args = Args::parse();
     let config: Config = args.try_into()?;
     tracing_subscriber::fmt().json().init();
-    let server = SignwayServer::from_env(config)?;
+    let server = SignwayServer::from_env(config);
     server.start().await
 }
