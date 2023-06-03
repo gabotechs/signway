@@ -121,7 +121,9 @@ mod tests {
 
     use hyper::HeaderMap;
 
-    use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
+    use crate::_test_tools::tests::{
+        json_path, DummyGatewayMiddleware, InMemorySecretGetter, ReqBuilder,
+    };
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::X_PROXY;
 
@@ -130,6 +132,7 @@ mod tests {
     fn server() -> SignwayServer<InMemorySecretGetter> {
         SignwayServer {
             port: 0,
+            gateway_middleware: Box::new(DummyGatewayMiddleware {}),
             secret_getter: InMemorySecretGetter(HashMap::from([(
                 "foo".to_string(),
                 SecretGetterResult {

@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::u16;
 
+use crate::gateway_middleware::GatewayMiddleware;
 use anyhow::Result;
 use hyper::service::service_fn;
 use tokio::net::TcpListener;
@@ -13,7 +14,12 @@ use crate::secret_getter::SecretGetter;
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
     pub secret_getter: T,
+    pub gateway_middleware: Box<dyn GatewayMiddleware>,
 }
+
+struct NoneGatewayMiddleware;
+
+impl GatewayMiddleware for NoneGatewayMiddleware {}
 
 impl<T: SecretGetter> SignwayServer<T> {
     pub fn from_env(secret_getter: T) -> Result<SignwayServer<T>> {
@@ -21,7 +27,13 @@ impl<T: SecretGetter> SignwayServer<T> {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter,
+            gateway_middleware: Box::new(NoneGatewayMiddleware {}),
         })
+    }
+
+    pub fn with_middleware(mut self, gateway_middleware: impl GatewayMiddleware + 'static) -> Self {
+        self.gateway_middleware = Box::new(gateway_middleware);
+        self
     }
 
     pub async fn start(self) -> Result<()> {
@@ -62,7 +74,7 @@ mod tests {
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::_test_tools::tests::InMemorySecretGetter;
+    use crate::_test_tools::tests::{DummyGatewayMiddleware, InMemorySecretGetter};
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::{SignRequest, UrlSigner};
 
@@ -73,6 +85,7 @@ mod tests {
     ) -> SignwayServer<InMemorySecretGetter> {
         SignwayServer {
             port: 3000,
+            gateway_middleware: Box::new(DummyGatewayMiddleware {}),
             secret_getter: InMemorySecretGetter(HashMap::from(config.map(|e| {
                 (
                     e.0.to_string(),

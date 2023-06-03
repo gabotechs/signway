@@ -16,6 +16,7 @@ pub(crate) mod tests {
 
     use crate::signing::{SignRequest, UrlSigner};
     use crate::{SecretGetter, SecretGetterResult};
+    use crate::gateway_middleware::GatewayMiddleware;
 
     use super::*;
 
@@ -161,5 +162,11 @@ pub(crate) mod tests {
         async fn get_secret(&self, id: &str) -> Result<Option<SecretGetterResult>, Self::Error> {
             Ok(self.0.get(id).cloned())
         }
+    }
+    
+    pub(crate) struct DummyGatewayMiddleware();
+    
+    impl GatewayMiddleware for DummyGatewayMiddleware {
+        
     }
 }
