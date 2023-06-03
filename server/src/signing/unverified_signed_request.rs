@@ -95,7 +95,7 @@ impl UnverifiedSignedRequest {
             let value = req.headers().get(header).ok_or_else(|| {
                 anyhow!("header {header} should be signed but it is missing in the request")
             })?;
-            headers.insert(HeaderName::try_from(header.to_string())?, value.clone());
+            headers.insert(HeaderName::try_from(header)?, value.into());
         }
 
         let elements = ElementsToSign {
