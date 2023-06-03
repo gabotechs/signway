@@ -6,8 +6,10 @@ use std::u16;
 use crate::gateway_middleware::GatewayMiddleware;
 use anyhow::Result;
 use async_trait::async_trait;
+use hyper::client::HttpConnector;
 use hyper::service::service_fn;
 use hyper::{Body, Request};
+use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
@@ -17,6 +19,7 @@ pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
     pub secret_getter: T,
     pub gateway_middleware: Box<dyn GatewayMiddleware>,
+    pub(crate) client: hyper::Client<HttpsConnector<HttpConnector>, Body>,
 }
 
 pub(crate) struct NoneGatewayMiddleware;
@@ -28,11 +31,15 @@ impl GatewayMiddleware for NoneGatewayMiddleware {
 
 impl<T: SecretGetter> SignwayServer<T> {
     pub fn from_env(secret_getter: T) -> SignwayServer<T> {
+        let https = HttpsConnector::new();
+        let client = hyper::Client::builder().build::<_, Body>(https);
+
         SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter,
             gateway_middleware: Box::new(NoneGatewayMiddleware {}),
+            client,
         }
     }
 
@@ -88,19 +95,15 @@ mod tests {
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
     ) -> SignwayServer<InMemorySecretGetter> {
-        SignwayServer {
-            port: 3000,
-            gateway_middleware: Box::new(NoneGatewayMiddleware {}),
-            secret_getter: InMemorySecretGetter(HashMap::from(config.map(|e| {
-                (
-                    e.0.to_string(),
-                    SecretGetterResult {
-                        secret: e.1.to_string(),
-                        headers_extension: HeaderMap::new(),
-                    },
-                )
-            }))),
-        }
+        SignwayServer::from_env(InMemorySecretGetter(HashMap::from(config.map(|e| {
+            (
+                e.0.to_string(),
+                SecretGetterResult {
+                    secret: e.1.to_string(),
+                    headers_extension: HeaderMap::new(),
+                },
+            )
+        }))))
     }
 
     fn base_request() -> SignRequest {
