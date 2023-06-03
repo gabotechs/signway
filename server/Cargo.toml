@@ -1,6 +1,6 @@
 [package]
 name = "signway-server"
-version = "0.1.0"
+version = "0.1.2"
 description = "A gateway for redirecting authentic signed URLs to the requested API"
 license = "ELv2"
 edition = "2021"
