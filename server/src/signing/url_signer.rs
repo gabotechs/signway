@@ -6,7 +6,7 @@ use hmac::Mac;
 use hyper::{HeaderMap, Uri};
 use sha2::Sha256;
 
-use super::sign_request::SignRequest;
+use super::unverified_signed_request::ElementsToSign;
 use crate::signing::signing_functions;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -24,7 +24,7 @@ impl UrlSigner {
         }
     }
 
-    fn url_no_signed(&self, req: &SignRequest) -> String {
+    fn url_no_signed(&self, req: &ElementsToSign) -> String {
         format!(
             "/{}",
             signing_functions::authorization_query_params_no_sig(
@@ -41,7 +41,7 @@ impl UrlSigner {
         )
     }
 
-    fn canonical_request(&self, req: &SignRequest) -> Result<String> {
+    fn canonical_request(&self, req: &ElementsToSign) -> Result<String> {
         Ok(signing_functions::canonical_request(
             &req.method,
             &Uri::try_from(&self.url_no_signed(req))?,
@@ -50,7 +50,7 @@ impl UrlSigner {
         ))
     }
 
-    pub(crate) fn get_signature(&self, req: &SignRequest) -> Result<String> {
+    pub(crate) fn get_signature(&self, req: &ElementsToSign) -> Result<String> {
         let canonical_request = self.canonical_request(req)?;
         let to_sign = signing_functions::string_to_sign(&req.datetime, &canonical_request);
 
@@ -62,7 +62,7 @@ impl UrlSigner {
     }
 
     #[cfg(test)]
-    pub(crate) fn get_signed_url(&self, host: &str, req: &SignRequest) -> Result<String> {
+    pub(crate) fn get_signed_url(&self, host: &str, req: &ElementsToSign) -> Result<String> {
         Ok(format!(
             "{host}{}&{}={}",
             self.url_no_signed(req),
@@ -78,9 +78,9 @@ mod tests {
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    fn base_request() -> SignRequest {
+    fn base_request() -> ElementsToSign {
         let epoch = OffsetDateTime::UNIX_EPOCH;
-        SignRequest {
+        ElementsToSign {
             proxy_url: Url::parse("https://github.com").unwrap(),
             expiry: 600,
             datetime: PrimitiveDateTime::new(epoch.date(), epoch.time()),

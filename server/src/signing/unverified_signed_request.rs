@@ -11,8 +11,9 @@ use crate::signing::signing_functions::LONG_DATETIME;
 
 use super::signing_functions;
 
+/// Elements from a request that participate in the signing.
 #[derive(Debug, Clone)]
-pub(crate) struct SignRequest {
+pub struct ElementsToSign {
     pub proxy_url: Url,
     pub expiry: u32,
     pub datetime: PrimitiveDateTime,
@@ -21,15 +22,24 @@ pub(crate) struct SignRequest {
     pub body: Option<String>,
 }
 
+/// signing information that will be used for verifying that
+/// a declared signature is authentic.
 #[derive(Debug, Clone)]
-pub(crate) struct SignInfo {
+pub struct SignInfo {
     pub signature: String,
     pub id: String,
-    pub include_body: bool,
+    pub body_is_pending: bool,
 }
 
-impl SignRequest {
-    pub(crate) fn from_signed_request<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
+/// unverified signed request.
+#[derive(Debug, Clone)]
+pub struct UnverifiedSignedRequest {
+    pub elements: ElementsToSign,
+    pub info: SignInfo,
+}
+
+impl UnverifiedSignedRequest {
+    pub(crate) fn from_request<T>(req: &Request<T>) -> Result<UnverifiedSignedRequest> {
         let query_params = url::form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes());
 
         let mut x_algorithm: Option<String> = None;
@@ -88,7 +98,7 @@ impl SignRequest {
             headers.insert(HeaderName::try_from(header.to_string())?, value.clone());
         }
 
-        let signing_request = SignRequest {
+        let elements = ElementsToSign {
             proxy_url: Url::parse(
                 &x_proxy.ok_or_else(|| anyhow!("missing {}", signing_functions::X_PROXY))?,
             )?,
@@ -111,15 +121,15 @@ impl SignRequest {
             return Err(anyhow!("invalid {}", signing_functions::X_CREDENTIAL));
         }
 
-        let signing_info = SignInfo {
+        let info = SignInfo {
             signature: x_signature
                 .ok_or_else(|| anyhow!("missing {}", signing_functions::X_SIGNATURE))?,
             id: id.to_string(),
-            include_body: x_signed_body
+            body_is_pending: x_signed_body
                 .ok_or_else(|| anyhow!("missing {}", signing_functions::X_SIGNED_BODY))?,
         };
 
-        Ok((signing_request, signing_info))
+        Ok(UnverifiedSignedRequest { elements, info })
     }
 }
 
@@ -151,7 +161,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_ALGORITHM}"))
     }
@@ -164,7 +174,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_DATE}"))
     }
@@ -178,7 +188,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_EXPIRES}"))
     }
@@ -194,7 +204,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNED_HEADERS}"))
     }
@@ -213,7 +223,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), "Request has expired")
     }
@@ -229,7 +239,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -249,7 +259,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_PROXY}"))
     }
@@ -266,7 +276,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_CREDENTIAL}"))
     }
@@ -283,7 +293,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNATURE}"))
     }
@@ -300,7 +310,7 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let err = SignRequest::from_signed_request(&req).unwrap_err();
+        let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
 
         assert_eq!(err.to_string(), format!("missing {X_SIGNED_BODY}"))
     }
@@ -317,14 +327,17 @@ mod tests {
             .body(string_to_body("body"))
             .unwrap();
 
-        let (sign_req, info) = SignRequest::from_signed_request(&req).unwrap();
-        assert_eq!(sign_req.proxy_url.to_string(), "https://github.com/");
-        assert_eq!(sign_req.expiry, 60);
-        assert_eq!(sign_req.method, "POST");
-        assert!(sign_req.body.is_none());
+        let sign_req = UnverifiedSignedRequest::from_request(&req).unwrap();
+        assert_eq!(
+            sign_req.elements.proxy_url.to_string(),
+            "https://github.com/"
+        );
+        assert_eq!(sign_req.elements.expiry, 60);
+        assert_eq!(sign_req.elements.method, "POST");
+        assert!(sign_req.elements.body.is_none());
 
-        assert_eq!(info.id, "asdf");
-        assert!(info.include_body);
-        assert_eq!(info.signature, "asdf")
+        assert_eq!(sign_req.info.id, "asdf");
+        assert!(sign_req.info.body_is_pending);
+        assert_eq!(sign_req.info.signature, "asdf")
     }
 }
