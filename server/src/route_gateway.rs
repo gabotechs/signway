@@ -63,7 +63,7 @@ impl<T: SecretGetter> SignwayServer<T> {
             return Ok(bad_request(anyhow!("Missing secret")));
         };
 
-        let signer = UrlSigner::new(&info.id, &secret.secret, self.self_host.clone());
+        let signer = UrlSigner::new(&info.id, &secret.secret);
 
         if info.include_body {
             let content_length = match Self::parse_content_length(&req) {
@@ -120,7 +120,6 @@ mod tests {
     use std::collections::HashMap;
 
     use hyper::HeaderMap;
-    use url::Url;
 
     use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
     use crate::secret_getter::SecretGetterResult;
@@ -131,7 +130,6 @@ mod tests {
     fn server() -> SignwayServer<InMemorySecretGetter> {
         SignwayServer {
             port: 0,
-            self_host: Url::parse("http://localhost").unwrap(),
             secret_getter: InMemorySecretGetter(HashMap::from([(
                 "foo".to_string(),
                 SecretGetterResult {

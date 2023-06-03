@@ -7,13 +7,11 @@ use anyhow::Result;
 use hyper::service::service_fn;
 use tokio::net::TcpListener;
 use tracing::{error, info};
-use url::Url;
 
 use crate::secret_getter::SecretGetter;
 
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
-    pub self_host: Url,
     pub secret_getter: T,
 }
 
@@ -22,10 +20,6 @@ impl<T: SecretGetter> SignwayServer<T> {
         Ok(SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
-            self_host: Url::parse(
-                &std::env::var("SELF_HOST").unwrap_or("http://localhost".to_string()),
-            )
-            .expect("failed to parse SELF_HOST env variable"),
             secret_getter,
         })
     }
@@ -35,6 +29,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 
         let arc_self = Arc::new(self);
         let listener = TcpListener::bind(in_addr).await?;
+
         info!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
@@ -78,7 +73,6 @@ mod tests {
     ) -> SignwayServer<InMemorySecretGetter> {
         SignwayServer {
             port: 3000,
-            self_host: Url::parse("http://localhost:3000").unwrap(),
             secret_getter: InMemorySecretGetter(HashMap::from(config.map(|e| {
                 (
                     e.0.to_string(),
@@ -109,9 +103,9 @@ mod tests {
     async fn simple_get_works() {
         let server = server_for_testing([("foo", "foo-secret")]);
         tokio::task::spawn(server.start());
-        let host = Url::parse("http://localhost:3000").unwrap();
-        let signer = UrlSigner::new("foo", "foo-secret", host.clone());
-        let signed_url = signer.get_signed_url(&base_request()).unwrap();
+        let host = "http://localhost:3000";
+        let signer = UrlSigner::new("foo", "foo-secret");
+        let signed_url = signer.get_signed_url(host, &base_request()).unwrap();
 
         let response = reqwest::Client::new()
             .get(signed_url)
@@ -128,10 +122,10 @@ mod tests {
     async fn signed_with_different_secret_does_not_work() {
         let server = server_for_testing([("foo", "foo-secret")]);
         tokio::task::spawn(server.start());
-        let host = Url::parse("http://localhost:3000").unwrap();
-        let bad_signer = UrlSigner::new("foo", "bad-secret", host.clone());
+        let host = "http://localhost:3000";
+        let bad_signer = UrlSigner::new("foo", "bad-secret");
 
-        let signed_url = bad_signer.get_signed_url(&base_request()).unwrap();
+        let signed_url = bad_signer.get_signed_url(host, &base_request()).unwrap();
 
         let response = reqwest::Client::new()
             .get(signed_url)

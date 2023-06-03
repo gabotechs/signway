@@ -2,7 +2,7 @@ use std::str;
 
 use anyhow::Result;
 use hmac::{Hmac, Mac};
-use hyper::HeaderMap;
+use hyper::{HeaderMap, Uri};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use sha2::{Digest, Sha256};
 use time::{macros::format_description, PrimitiveDateTime};
@@ -51,26 +51,26 @@ const FRAGMENT: &AsciiSet = &CONTROLS
 
 const FRAGMENT_SLASH: &AsciiSet = &FRAGMENT.add(b'/');
 
-pub(crate) const X_ALGORITHM: &str = "X-Sup-Algorithm";
-const ALGORITHM: &str = "SUP1-HMAC-SHA256";
-pub(crate) const X_CREDENTIAL: &str = "X-Sup-Credential";
-pub(crate) const X_DATE: &str = "X-Sup-Date";
-pub(crate) const X_EXPIRES: &str = "X-Sup-Expires";
-pub(crate) const X_SIGNED_HEADERS: &str = "X-Sup-SignedHeaders";
-pub(crate) const X_SIGNED_BODY: &str = "X-Sup-Body";
-pub(crate) const X_PROXY: &str = "X-Sup-Proxy";
-pub(crate) const X_SIGNATURE: &str = "X-Sup-Signature";
+pub(crate) const X_ALGORITHM: &str = "X-Sw-Algorithm";
+const ALGORITHM: &str = "SW1-HMAC-SHA256";
+pub(crate) const X_CREDENTIAL: &str = "X-Sw-Credential";
+pub(crate) const X_DATE: &str = "X-Sw-Date";
+pub(crate) const X_EXPIRES: &str = "X-Sw-Expires";
+pub(crate) const X_SIGNED_HEADERS: &str = "X-Sw-SignedHeaders";
+pub(crate) const X_SIGNED_BODY: &str = "X-Sw-Body";
+pub(crate) const X_PROXY: &str = "X-Sw-Proxy";
+pub(crate) const X_SIGNATURE: &str = "X-Sw-Signature";
 
 /// This is actually just the path part of the uri, not the full uri
-pub(crate) fn canonical_uri_string(uri: &Url) -> String {
+pub(crate) fn canonical_uri_string(uri: &Uri) -> String {
     let decoded = percent_encoding::percent_decode_str(uri.path()).decode_utf8_lossy();
     utf8_percent_encode(&decoded, FRAGMENT).to_string()
 }
 
 /// These are the query params of the uri
-pub(crate) fn canonical_query_string(uri: &Url) -> String {
-    let mut params: Vec<(String, String)> = uri
-        .query_pairs()
+pub(crate) fn canonical_query_string(uri: &Uri) -> String {
+    let query_params = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes());
+    let mut params: Vec<(String, String)> = query_params
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect();
     params.sort();
@@ -107,14 +107,14 @@ pub(crate) fn signed_header_string(headers: &HeaderMap) -> String {
 
 pub(crate) fn canonical_request(
     method: &str,
-    url: &Url,
+    uri: &Uri,
     headers: &HeaderMap,
     body: &str,
 ) -> String {
     format!(
         "{method}\n{uri}\n{query_string}\n{headers}\n\n{signed}\n{body}",
-        uri = canonical_uri_string(url),
-        query_string = canonical_query_string(url),
+        uri = canonical_uri_string(uri),
+        query_string = canonical_query_string(uri),
         headers = canonical_header_string(headers),
         signed = signed_header_string(headers),
     )
@@ -149,7 +149,7 @@ pub(crate) fn authorization_query_params_no_sig(
     proxy_url: &Url,
     custom_headers: Option<&HeaderMap>,
     sign_body: bool,
-) -> Result<String> {
+) -> String {
     let credentials = format!("{}/{}", access_key, scope_string(datetime));
 
     let mut signed_headers = vec![];
@@ -168,7 +168,7 @@ pub(crate) fn authorization_query_params_no_sig(
     let long_date = datetime.format(LONG_DATETIME).unwrap();
     let sign_body = if sign_body { "true" } else { "false" };
 
-    Ok(format!(
+    format!(
         "?{X_ALGORITHM}={ALGORITHM}\
             &{X_CREDENTIAL}={credentials}\
             &{X_DATE}={long_date}\
@@ -176,5 +176,5 @@ pub(crate) fn authorization_query_params_no_sig(
             &{X_PROXY}={proxy_url}\
             &{X_SIGNED_HEADERS}={signed_headers}\
             &{X_SIGNED_BODY}={sign_body}",
-    ))
+    )
 }

@@ -104,8 +104,8 @@ pub(crate) mod tests {
                 body: self.body.clone(),
             };
 
-            let signer = UrlSigner::new(id, secret, Url::parse(host)?);
-            let signed = signer.get_signed_url(&sign_request)?;
+            let signer = UrlSigner::new(id, secret);
+            let signed = signer.get_signed_url(host, &sign_request)?;
 
             let signed_url = Url::parse(&signed)?;
 

@@ -30,12 +30,7 @@ pub(crate) struct SignInfo {
 
 impl SignRequest {
     pub(crate) fn from_signed_request<T>(req: &Request<T>) -> Result<(Self, SignInfo)> {
-        let mut uri = req.uri().to_string();
-        // TODO: is there a better way to parse just the query params here?
-        if uri.starts_with('/') {
-            uri = "http://localhost".to_string() + &uri;
-        }
-        let url = Url::parse(&uri)?;
+        let query_params = url::form_urlencoded::parse(req.uri().query().unwrap_or("").as_bytes());
 
         let mut x_algorithm: Option<String> = None;
         let mut x_credential: Option<String> = None;
@@ -45,7 +40,7 @@ impl SignRequest {
         let mut x_signed_body: Option<bool> = None;
         let mut x_proxy: Option<String> = None;
         let mut x_signature: Option<String> = None;
-        for (k, v) in url.query_pairs() {
+        for (k, v) in query_params {
             match k.as_ref() {
                 signing_functions::X_ALGORITHM => x_algorithm = Some(v.to_string()),
                 signing_functions::X_CREDENTIAL => x_credential = Some(v.to_string()),

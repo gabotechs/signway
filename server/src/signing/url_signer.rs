@@ -3,9 +3,8 @@ use std::string::ToString;
 use anyhow::Result;
 use hmac::Hmac;
 use hmac::Mac;
-use hyper::HeaderMap;
+use hyper::{HeaderMap, Uri};
 use sha2::Sha256;
-use url::Url;
 
 use super::sign_request::SignRequest;
 use crate::signing::signing_functions;
@@ -15,22 +14,19 @@ type HmacSha256 = Hmac<Sha256>;
 pub(crate) struct UrlSigner {
     id: String,
     secret: String,
-    host: Url,
 }
 
 impl UrlSigner {
-    pub(crate) fn new(id: &str, secret: &str, host: Url) -> Self {
+    pub(crate) fn new(id: &str, secret: &str) -> Self {
         Self {
             id: id.to_string(),
             secret: secret.to_string(),
-            host,
         }
     }
 
-    fn url_no_signed(&self, req: &SignRequest) -> Result<Url> {
-        Ok(Url::parse(&format!(
-            "{}{}",
-            &self.host,
+    fn url_no_signed(&self, req: &SignRequest) -> String {
+        format!(
+            "/{}",
             signing_functions::authorization_query_params_no_sig(
                 &self.id,
                 &req.datetime,
@@ -41,14 +37,14 @@ impl UrlSigner {
                     None => None,
                 },
                 req.body.is_some()
-            )?,
-        ))?)
+            )
+        )
     }
 
     fn canonical_request(&self, req: &SignRequest) -> Result<String> {
         Ok(signing_functions::canonical_request(
             &req.method,
-            &self.url_no_signed(req)?,
+            &Uri::try_from(&self.url_no_signed(req))?,
             &req.headers.clone().unwrap_or(HeaderMap::new()),
             req.body.as_ref().unwrap_or(&String::new()),
         ))
@@ -66,10 +62,10 @@ impl UrlSigner {
     }
 
     #[cfg(test)]
-    pub(crate) fn get_signed_url(&self, req: &SignRequest) -> Result<String> {
+    pub(crate) fn get_signed_url(&self, host: &str, req: &SignRequest) -> Result<String> {
         Ok(format!(
-            "{}&{}={}",
-            self.url_no_signed(req)?,
+            "{host}{}&{}={}",
+            self.url_no_signed(req),
             signing_functions::X_SIGNATURE,
             self.get_signature(req)?
         ))
@@ -80,6 +76,7 @@ impl UrlSigner {
 mod tests {
     use super::*;
     use time::{OffsetDateTime, PrimitiveDateTime};
+    use url::Url;
 
     fn base_request() -> SignRequest {
         let epoch = OffsetDateTime::UNIX_EPOCH;
@@ -94,11 +91,7 @@ mod tests {
     }
 
     fn signer() -> UrlSigner {
-        UrlSigner::new(
-            "foo",
-            "secret",
-            Url::parse("http://localhost:3000").unwrap(),
-        )
+        UrlSigner::new("foo", "secret")
     }
 
     #[test]
@@ -110,7 +103,7 @@ mod tests {
             "\
 POST
 /
-X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=
+X-Sw-Algorithm=SW1-HMAC-SHA256&X-Sw-Body=false&X-Sw-Credential=foo%2F19700101&X-Sw-Date=19700101T000000Z&X-Sw-Expires=600&X-Sw-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sw-SignedHeaders=
 
 
 
@@ -120,11 +113,11 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F1970010
 
     #[test]
     fn creates_the_non_signed_url() {
-        let non_signed_url = signer().url_no_signed(&base_request()).unwrap();
+        let non_signed_url = signer().url_no_signed(&base_request());
 
         assert_eq!(
-            non_signed_url.to_string(),
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=&X-Sup-Body=false"
+            non_signed_url,
+            "/?X-Sw-Algorithm=SW1-HMAC-SHA256&X-Sw-Credential=foo%2F19700101&X-Sw-Date=19700101T000000Z&X-Sw-Expires=600&X-Sw-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sw-SignedHeaders=&X-Sw-Body=false"
         )
     }
 
@@ -134,17 +127,19 @@ X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Body=false&X-Sup-Credential=foo%2F1970010
 
         assert_eq!(
             signed_authorization,
-            "f9ef3f037f5da91a2de988756cded83e1e3ad1e1c313c2de734c2d5679601c37"
+            "ed15db76d806155fd5119e093a0f030063c90d943dfdd27e011a9044a77a90a6"
         )
     }
 
     #[test]
     fn creates_a_signed_url() {
-        let signed_url = signer().get_signed_url(&base_request()).unwrap();
+        let signed_url = signer()
+            .get_signed_url("http://localhost:3000", &base_request())
+            .unwrap();
 
         assert_eq!(
             signed_url,
-            "http://localhost:3000/?X-Sup-Algorithm=SUP1-HMAC-SHA256&X-Sup-Credential=foo%2F19700101&X-Sup-Date=19700101T000000Z&X-Sup-Expires=600&X-Sup-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sup-SignedHeaders=&X-Sup-Body=false&X-Sup-Signature=f9ef3f037f5da91a2de988756cded83e1e3ad1e1c313c2de734c2d5679601c37"
+            "http://localhost:3000/?X-Sw-Algorithm=SW1-HMAC-SHA256&X-Sw-Credential=foo%2F19700101&X-Sw-Date=19700101T000000Z&X-Sw-Expires=600&X-Sw-Proxy=https%3A%2F%2Fgithub.com%2F&X-Sw-SignedHeaders=&X-Sw-Body=false&X-Sw-Signature=ed15db76d806155fd5119e093a0f030063c90d943dfdd27e011a9044a77a90a6"
         )
     }
 }
