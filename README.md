@@ -4,80 +4,77 @@
 
 A gateway that proxies signed urls to other APIs.
 
+# Problem statement
 
-## Config entry
+Imagine that you have a setup that looks like this. Your backend accesses
+a public and authenticated api using a API token, and the response needs 
+to be streamed in chunks, because it is a lot of data or because the response
+uses [SSE](https://www.w3schools.com/html/html5_serversentevents.asp).
 
-```rust
-struct Config {
-    id: String,
-    secret: String,
-    extend_headers: HashMap<String, String>
-}
+```mermaid
+sequenceDiagram
+    participant frontend
+    participant backend
+    participant third_party api
+    
+    frontend->>+backend: request
+    backend->>backend: authentication
+    backend->>+third_party api: request + API token
+    third_party api->>-backend: data stream
+    backend->>-frontend: data stream
 ```
 
-- `id` is public, it will be publicly present in the signed URL.
-- `secret` is private. It is used for creating the URL signature, so 
-both server and signer proxy should now it.
-- `extend_headers` is private. They will be automatically included in the
-request made by signer proxy to the final API. It's only known to the
-signer proxy.
+As you own the backend, you can safely configure there whatever is needed
+for authenticating with the third party api, and re-stream back the data
+as it comes from the third party api to the end user.
 
-## Signing a Request
+However, if you are using a **serverless** architecture, this gets **tricky** for two
+reasons:
+1. Most serverless setups don't allow you to stream the response, you can only
+send back one blob.
+2. Your serverless function would need to live for a very long time, even if it is just
+doing slow IO data transfer, so cost may increase significantly.
 
-```rust
-use std::collections::HashMap;
+This is where Signway enters the game. Signway provides you a way of letting the
+end user do the request "almost directly" to the third party API in a secure way
+without the need of leaking credentials to the users.
 
-struct SignRequest {
-    id: String,
-    secret: String,
-    url: String,
-    method: String,
-    headers: Option<HashMap<String, String>>,
-    body: Option<String>
-}
+The schema using Signway looks like this:
 
-impl SignRequest {
-    fn example() -> Self {
-        Self {
-            id: "foo",
-            method: "POST",
-            secret: "super secret",
-            url: "https://api.openai.com/v1/chat/completions",
-            headers: Some(HashMap::from([
-                ("Content-Type", "application/json")
-            ])),
-            body: Some("{
-             \"model\": \"gpt-3.5-turbo\",
-             \"messages\": [{\"role\": \"user\", \"content\": \"Say this is a test!\"}],
-             \"temperature\": 0.7
-           }")
-        }
-    }
-}
+```mermaid
+sequenceDiagram
+    participant frontend
+    participant backend
+    participant Signway
+    participant third_party api
+
+    frontend->>+backend: request
+    backend->>backend: authentication
+    backend->>backend: create signed url using an "id" and a "secret"
+    backend->>-frontend: signed URL
+    frontend->>+Signway: signed URL + request
+    Signway->>Signway: verify signature for "id" using "secret"
+    Signway->>+third_party api: request + API token
+    third_party api->>-Signway: data stream
+    Signway->>-frontend: data stream
+    
 ```
 
-1. Create The canonical request 
-   ```
-   POST
-   https://api.openai.com/v1/chat/completions 
-   X-Version=0&X-Id=foo%2F20230527&X-Date=20230527T134607Z&X-Expires=600&X-SignedHeaders=content-type
-   content-type:application/json
+This way you leverage heavy IO work to Signway, which is a high performant gateway server
+written in Rust prepared for heavy throughput, and you are able to stream data to end users
+from APIs that send you data chunk by chunk.
 
-   content-type
-   {
-     "model": "gpt-3.5-turbo",
-     "messages": [{"role": "user", "content": "Say this is a test!"}],
-     "temperature": 0.7
-   }
-   ```
-2. Create The string that will ultimately be signed
-   ```c
-   0 // The algorithm version
-   20230527T134607Z // The datetime when the request was issued
-   20230527 // The date when the request was issued
-   32869dfb8ae196fccf406b8f595d976625c2f7404e99056d6da2fb8644d24e06 // The signed canonical request (see above ^)
-   ```
-3. Create the signing key
-   ```
-   
-   ```
+# Signing algorithm
+
+The signing algorithm is inspired strongly in [AWS signature v4](https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html),
+the same that [s3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html)
+uses for generated pre-signed URLs for letting clients interact with buckets directly.
+
+Generating a signed URL requires that the signer know a public `id` and a private `secret`. The `id`
+will live in plain text in the signed URL, and the `secret` will be used for creating the request's
+signature, but it is not included in the URL.
+
+Signway, who knows which `secret` is associated to which `client`, will take the request and
+verify it's signature. If it is authentic and has not expired, it will redirect the request
+to the requested URL, adding any preconfigured headers for that `id` like API tokens.
+
