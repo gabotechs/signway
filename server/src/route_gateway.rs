@@ -121,30 +121,24 @@ mod tests {
 
     use hyper::HeaderMap;
 
-    use crate::_test_tools::tests::{
-        json_path, DummyGatewayMiddleware, InMemorySecretGetter, ReqBuilder,
-    };
+    use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::X_PROXY;
 
     use super::*;
 
     fn server() -> SignwayServer<InMemorySecretGetter> {
-        SignwayServer {
-            port: 0,
-            gateway_middleware: Box::new(DummyGatewayMiddleware {}),
-            secret_getter: InMemorySecretGetter(HashMap::from([(
-                "foo".to_string(),
-                SecretGetterResult {
-                    secret: "bar".to_string(),
-                    headers_extension: HeaderMap::try_from(&HashMap::from([(
-                        "X-Custom".to_string(),
-                        "custom".to_string(),
-                    )]))
-                    .unwrap(),
-                },
-            )])),
-        }
+        SignwayServer::from_env(InMemorySecretGetter(HashMap::from([(
+            "foo".to_string(),
+            SecretGetterResult {
+                secret: "bar".to_string(),
+                headers_extension: HeaderMap::try_from(&HashMap::from([(
+                    "X-Custom".to_string(),
+                    "custom".to_string(),
+                )]))
+                .unwrap(),
+            },
+        )])))
     }
 
     #[tokio::test]
