@@ -53,6 +53,22 @@ impl<T: SecretGetter> SignwayServer<T> {
             Err(e) => return Ok(bad_request(e)),
         };
 
+        match self
+            .gateway_middleware
+            .on_req(&unverified_signed_request)
+            .await
+        {
+            Ok(a) => {
+                if let Some(early_response) = a {
+                    return Ok(Response::builder()
+                        .status(early_response.status)
+                        .body(string_to_body(&early_response.message))
+                        .unwrap());
+                }
+            }
+            Err(e) => return Ok(internal_server(anyhow!("{e}"))),
+        };
+
         let secret = match self
             .secret_getter
             .get_secret(&unverified_signed_request.info.id)
