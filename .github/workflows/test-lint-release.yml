@@ -125,4 +125,4 @@ jobs:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: gabotechs/signway:${{ steps.tag.output.version }},gabotechs/signway:latest
+          tags: gabotechs/signway:${{ steps.tag.outputs.version }},gabotechs/signway:latest
