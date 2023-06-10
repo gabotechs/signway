@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "signway"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "signway-server"
-version = "0.1.6"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "async-trait",
