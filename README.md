@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-    A gateway that proxies signed urls to other APIs.
+    A gateway that proxies signed requests to other APIs.
 </p>
 
 
