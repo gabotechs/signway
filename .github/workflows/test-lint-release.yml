@@ -86,7 +86,8 @@ jobs:
       - name: Install bump tool
         run: cargo install cargo-workspaces
 
-      - name: Tag and Release
+      - name: Tag
+        id: tag
         run: |
           SEM_VER=$(.github/semver.sh)
           cargo workspaces version $SEM_VER -y --no-git-commit
@@ -99,10 +100,29 @@ jobs:
           git tag "v$version"
           git push
           git push --tags
-          gh release create "v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        run: gh release create "v${{ steps.tag.outputs.version }}"
         env:
           GH_TOKEN: ${{ github.token }}
+
       - name: Publish
         run: cargo publish -p signway-server
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: gabotechs
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v1
+
+      - uses: docker/build-push-action@v2
+        with:
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: gabotechs/signway:${{ steps.tag.output.version }},gabotechs/signway:latest

@@ -1,0 +1,6 @@
+*
+
+!server
+!src
+!Cargo.lock
+!Cargo.toml
