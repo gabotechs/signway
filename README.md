@@ -1,13 +1,21 @@
-# Signway
+<p align="center">
+    <img height="100" src="./docs/assets/signway-white.png" alt="Signway logo"/>
+</p>
 
-[![Coverage Status](https://coveralls.io/repos/github/gabotechs/signway/badge.svg)](https://coveralls.io/github/gabotechs/signway)
+<p align="center">
+    <img src="https://coveralls.io/repos/github/gabotechs/signway/badge.svg?branch=main" alt="coverage badge"/>
+    <img src="https://img.shields.io/github/v/release/gabotechs/signway?color=%e535abff)" alt="last release"/>
+</p>
 
-A gateway that proxies signed urls to other APIs.
+<p align="center">
+    A gateway that proxies signed urls to other APIs.
+</p>
+
 
 # Problem statement
 
 Imagine that you have a setup that looks like this. Your backend accesses
-a public and authenticated api using a API token, and the response needs 
+a public and authenticated api using an API token, and the response needs 
 to be streamed in chunks, because it is a lot of data or because the response
 uses [SSE](https://www.w3schools.com/html/html5_serversentevents.asp).
 
@@ -31,7 +39,7 @@ as it comes to the end user.
 However, if you are using a **serverless** architecture, this gets **tricky** for two
 reasons:
 1. Most serverless setups, like [AWS lamda](https://aws.amazon.com/lambda/) with [API Gateway](https://aws.amazon.com/api-gateway/),
-**don't allow you to stream the response**, you can only send back one blob.
+**don't allow you to stream the response**, you can only send back one final blob.
 2. Your serverless function would need to live for a very long time, even if it is just
 doing slow IO data transfer, so **cost may increase significantly**.
 
