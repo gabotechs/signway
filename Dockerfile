@@ -4,6 +4,13 @@ WORKDIR /app
 
 COPY Cargo.toml .
 COPY Cargo.lock .
+
+COPY server/Cargo.toml server/Cargo.toml
+RUN mkdir server/src && touch server/src/lib.rs
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+RUN cargo build --release
+
 COPY server ./server
 COPY src ./src
 
