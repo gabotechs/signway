@@ -12,6 +12,23 @@
 </p>
 
 
+# Usage
+
+The server is meant to be used with docker, there are public images with support for
+`linux/arm64` and `linux/amd64`.
+
+```shell
+docker run gabotechs/signway my-id my-secret
+```
+
+You can also declare the headers that will be automatically added to the proxy-ed request in case
+of an authentic signed request is received:
+
+```shell
+docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-token'
+```
+
+
 # Problem statement
 
 Imagine that you have a setup that looks like this. Your backend accesses
