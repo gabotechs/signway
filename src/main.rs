@@ -76,5 +76,13 @@ async fn main() -> anyhow::Result<()> {
     let config: Config = args.try_into()?;
     tracing_subscriber::fmt().json().init();
     let server = SignwayServer::from_env(config);
-    server.start().await
+
+    tokio::select! {
+        result = server.start() => {
+            result
+        }
+        _ = tokio::signal::ctrl_c() => {
+            Ok(())
+        }
+    }
 }
