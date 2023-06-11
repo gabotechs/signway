@@ -11,6 +11,9 @@
     A gateway that proxies signed requests to other APIs.
 </p>
 
+<p align="center">
+    <img height="150px" src="./docs/assets/simple-scheme.png" alt="Signway scheme"/>
+</p>
 
 # Usage
 
@@ -29,7 +32,7 @@ docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-
 ```
 
 
-# Problem statement
+# What does it solve?
 
 Imagine that you have a setup that looks like this. Your backend accesses
 a public and authenticated api using an API token, and the response needs 
