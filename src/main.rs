@@ -16,7 +16,6 @@ struct Args {
     secret: String,
 
     #[arg(
-        short,
         long,
         help = "if a signed url is authentic, this headers will be added to the proxy-ed request"
     )]
