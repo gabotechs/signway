@@ -49,6 +49,17 @@ impl<T: SecretGetter> SignwayServer<T> {
             client,
         }
     }
+    pub fn from_port(secret_getter: T, port: u16) -> SignwayServer<T> {
+        let https = HttpsConnector::new();
+        let client = hyper::Client::builder().build::<_, Body>(https);
+
+        SignwayServer {
+            port,
+            secret_getter,
+            gateway_middleware: Box::new(NoneGatewayMiddleware {}),
+            client,
+        }
+    }
 
     pub fn with_middleware(mut self, gateway_middleware: impl GatewayMiddleware + 'static) -> Self {
         self.gateway_middleware = Box::new(gateway_middleware);
@@ -87,6 +98,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU16, Ordering};
 
     use hyper::StatusCode;
     use reqwest::header::HeaderMap;
@@ -101,16 +113,20 @@ mod tests {
 
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
+        port: u16,
     ) -> SignwayServer<InMemorySecretGetter> {
-        SignwayServer::from_env(InMemorySecretGetter(HashMap::from(config.map(|e| {
-            (
-                e.0.to_string(),
-                SecretGetterResult {
-                    secret: e.1.to_string(),
-                    headers_extension: HeaderMap::new(),
-                },
-            )
-        }))))
+        SignwayServer::from_port(
+            InMemorySecretGetter(HashMap::from(config.map(|e| {
+                (
+                    e.0.to_string(),
+                    SecretGetterResult {
+                        secret: e.1.to_string(),
+                        headers_extension: HeaderMap::new(),
+                    },
+                )
+            }))),
+            port,
+        )
     }
 
     fn base_request() -> ElementsToSign {
@@ -126,12 +142,14 @@ mod tests {
         }
     }
 
-    #[ignore] // something weird happens with the `cargo test` runtime and task spawning
+    static PORT: AtomicU16 = AtomicU16::new(3000);
+
     #[tokio::test]
     async fn simple_get_works() {
-        let server = server_for_testing([("foo", "foo-secret")]);
-        tokio::task::spawn(server.start());
-        let host = "http://localhost:3000";
+        let port = PORT.fetch_add(1, Ordering::SeqCst);
+        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
+        let host = &format!("http://localhost:{port}");
+
         let signer = UrlSigner::new("foo", "foo-secret");
         let signed_url = signer.get_signed_url(host, &base_request()).unwrap();
 
@@ -148,9 +166,10 @@ mod tests {
 
     #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
-        let server = server_for_testing([("foo", "foo-secret")]);
-        tokio::task::spawn(server.start());
-        let host = "http://localhost:3000";
+        let port = PORT.fetch_add(1, Ordering::SeqCst);
+        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
+        let host = &format!("http://localhost:{port}");
+
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
         let signed_url = bad_signer.get_signed_url(host, &base_request()).unwrap();
