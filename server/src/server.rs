@@ -8,7 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use hyper::client::HttpConnector;
 use hyper::service::service_fn;
-use hyper::Body;
+use hyper::{Body, Method};
 use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -80,7 +80,13 @@ impl<T: SecretGetter> SignwayServer<T> {
 
             let service = service_fn(move |req| {
                 let arc_self = arc_self.clone();
-                async move { arc_self.route_gateway(req).await }
+                async move {
+                    if req.method() == Method::OPTIONS {
+                        arc_self.route_cors(req).await
+                    } else {
+                        arc_self.route_gateway(req).await
+                    }
+                }
             });
 
             tokio::spawn(async move {
@@ -162,6 +168,44 @@ mod tests {
 
         let status = response.status();
         assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn options_returns_cors() {
+        let port = PORT.fetch_add(1, Ordering::SeqCst);
+        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
+        let host = &format!("http://localhost:{port}");
+
+        let response = reqwest::Client::new()
+            .request(Method::OPTIONS, host)
+            .header("host", "localhost:3000")
+            .send()
+            .await
+            .unwrap();
+
+        let status = response.status();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap(),
+            "*"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-headers")
+                .unwrap(),
+            "*"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("access-control-allow-methods")
+                .unwrap(),
+            "*"
+        )
     }
 
     #[tokio::test]
