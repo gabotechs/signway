@@ -15,23 +15,6 @@
     <img height="150px" src="./docs/assets/simple-scheme.png" alt="Signway scheme"/>
 </p>
 
-# Usage
-
-The server is meant to be used with docker, there are public images with support for
-`linux/arm64` and `linux/amd64`.
-
-```shell
-docker run gabotechs/signway my-id my-secret
-```
-
-You can also declare the headers that will be automatically added to the proxy-ed request in case
-of an authentic signed request is received:
-
-```shell
-docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-token'
-```
-
-
 # What does it solve?
 
 Imagine that you have a setup that looks like this. Your backend accesses
@@ -106,3 +89,33 @@ Signway, who knows which `secret` is associated to which `id`, will take the req
 recalculate its signature. If the declared signature and the calculated one match, and the request has not expired,
 it will redirect the request to the specified third party API, adding any preconfigured headers for that `id`, like API tokens.
 
+
+# Usage
+
+The server is meant to be used with docker, there are public images with support for
+`linux/arm64` and `linux/amd64`.
+
+```shell
+docker run gabotechs/signway my-id my-secret
+```
+
+You can also declare the headers that will be automatically added to the proxy-ed request in case
+of an authentic signed request is received:
+
+```shell
+docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-token'
+```
+
+# Pre-signed URL generation
+
+Typically, the Signway server will be publicly accessible to the internet, prepared
+to accept pre-signed requests, but someone needs to create those signed URLs. This
+should be a trusted source, like an application's backend.
+
+There is support for generating Signway pre-signed URLs for the following languages:
+- [Python](https://github.com/gabotechs/signway-python-sdk)
+- [JavaScript](https://github.com/gabotechs/signway-js-sdk)
+
+In order to generate a pre-signed URL, knowing the `id` and the `secret` that
+Signway is expecting is necessary, and as the `secret` is private, it is important
+to be careful not to leak it.
