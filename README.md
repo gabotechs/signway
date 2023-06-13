@@ -3,12 +3,18 @@
 </p>
 
 <p align="center">
+    <a href="https://www.signway.io">
+        <img src="https://img.shields.io/static/v1?label=website&message=link&color=purple" alt="Signway Book"/>
+    </a>
+    <a href="https://gabotechs.github.io/signway">
+        <img src="https://img.shields.io/badge/book-WIP-4d76ae.svg" alt="Signway Book"/>
+    </a>
     <img src="https://coveralls.io/repos/github/gabotechs/signway/badge.svg?branch=main" alt="coverage badge"/>
     <img src="https://img.shields.io/github/v/release/gabotechs/signway?color=%e535abff)" alt="last release"/>
 </p>
 
 <p align="center">
-    A gateway that proxies signed requests to other APIs.
+    A gateway that proxies signed requests to other APIs. Check the <a href="https://gabotechs.github.io/signway/">docs</a> for more info.
 </p>
 
 <p align="center">
@@ -110,7 +116,7 @@ docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-
 
 Typically, the Signway server will be publicly accessible to the internet, prepared
 to accept pre-signed requests, but someone needs to create those signed URLs. This
-should be a trusted source, like an application's backend.
+should be a trusted source, as it needs to know the signing `secret`, like an application's backend.
 
 There is support for generating Signway pre-signed URLs for the following languages:
 - [Python](https://github.com/gabotechs/signway-python-sdk)
