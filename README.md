@@ -1,5 +1,5 @@
 <p align="center">
-    <img height="100" src="./docs/assets/signway-white.png" alt="Signway logo"/>
+    <img height="100" src="docs/src/assets/signway-white.png" alt="Signway logo"/>
 </p>
 
 <p align="center">
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-    <img height="150px" src="./docs/assets/simple-scheme.png" alt="Signway scheme"/>
+    <img height="150px" src="docs/src/assets/simple-scheme.png" alt="Signway scheme"/>
 </p>
 
 # What does it solve?
