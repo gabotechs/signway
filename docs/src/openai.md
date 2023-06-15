@@ -119,7 +119,7 @@ the request succeed, but after the configured 10s have passed, the request will 
 
 ## Sign more things
 
-Right now, the `Content-Type` header and the body are not signed, so consumer of
+Right now, the `Content-Type` header and the body are not signed, so consumers of
 the signed URL are allowed to do whatever they want with those things.
 
 You can be more restrictive, and also sign both, so that users consuming the signed
