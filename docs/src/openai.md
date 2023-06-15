@@ -90,7 +90,7 @@ passing through Signway:
 ```bash
 curl $(python sign.py) \
 -H "Content-Type: application/json" \
--d '{"model": "text-davinci-003", "prompt": "Say this is a test"}'
+-d '{"model": "text-davinci-003", "stream": true, "prompt": "Say this is a test"}'
 ```
 
 If the `OPENAI_TOKEN` set while launching Signway is valid, you should have received an actual response
@@ -111,7 +111,7 @@ wait 10 seconds and do the request again:
 ```bash
 curl $SIGNED_URL \
 -H "Content-Type: application/json" \
--d '{"model": "text-davinci-003", "prompt": "Say this is a test"}'
+-d '{"model": "text-davinci-003", "stream": true, "prompt": "Say this is a test"}'
 ```
 
 If you are quick copy-pasting this commands in a terminal, you may have seen
@@ -140,7 +140,7 @@ print(sign_url(
     expiry=10,
     method="POST",
     headers={"Content-Type": "application/json"},
-    body='{"model": "text-davinci-003", "prompt": "Say this is a test"}'
+    body='{"model": "text-davinci-003", "stream": true, "prompt": "Say this is a test"}'
 ))
 ```
 
@@ -149,7 +149,7 @@ Now, try to make again the request with `curl`:
 ```bash
 curl $(python sign.py) \
 -H "Content-Type: application/json" \
--d '{"model": "text-davinci-003", "prompt": "Say this is a test"}'
+-d '{"model": "text-davinci-003", "stream": true, "prompt": "Say this is a test"}'
 ```
 
 That should work, as the provided header and body are the same that were declared in
@@ -158,7 +158,7 @@ the signature, but what if the body changes for example?
 ```bash
 curl $(python sign.py) \
 -H "Content-Type: application/json" \
--d '{"model": "text-davinci-003", "prompt": "Say this is NOT a test"}'
+-d '{"model": "text-davinci-003", "stream": true, "prompt": "Say this is NOT a test"}'
 ```
 
 You will get rejected by Signway, as the body now is contributing to the URL's signature.
