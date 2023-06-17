@@ -115,7 +115,7 @@ docker run gabotechs/signway my-id my-secret -h 'Authorization:Bearer my-secret-
 # Pre-signed URL generation
 
 Typically, the Signway server will be publicly accessible to the internet, prepared
-to accept pre-signed requests, but someone needs to create those signed URLs. This
+to accept requests with a pre-signed URL, but someone needs to create those pre-signed URLs. This
 should be a trusted source, as it needs to know the signing `secret`, like an application's backend.
 
 There is support for generating Signway pre-signed URLs for the following languages:
