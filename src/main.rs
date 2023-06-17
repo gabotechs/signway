@@ -4,7 +4,11 @@ use std::str::FromStr;
 use async_trait::async_trait;
 use clap::Parser;
 
-use signway_server::{HeaderMap, HeaderName, SecretGetter, SecretGetterResult, SignwayServer};
+use signway_server::hyper::header::HeaderName;
+use signway_server::hyper::{Body, Response, StatusCode};
+use signway_server::{
+    GetSecretResponse, HeaderMap, SecretGetter, SecretGetterResult, SignwayServer,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -58,11 +62,15 @@ impl TryInto<Config> for Args {
 impl SecretGetter for Config {
     type Error = anyhow::Error;
 
-    async fn get_secret(&self, id: &str) -> Result<Option<SecretGetterResult>, Self::Error> {
+    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
         if id != self.id {
-            return Ok(None);
+            return Ok(GetSecretResponse::EarlyResponse(
+                Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Body::empty())?,
+            ));
         }
-        Ok(Some(SecretGetterResult {
+        Ok(GetSecretResponse::Secret(SecretGetterResult {
             secret: self.secret.clone(),
             headers_extension: self.headers.clone(),
         }))

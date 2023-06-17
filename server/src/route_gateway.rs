@@ -1,14 +1,15 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use hyper::{Request, Response, StatusCode, Uri};
 use hyper::body::Body;
+use hyper::{Request, Response, StatusCode, Uri};
 use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
 use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
+use crate::GetSecretResponse;
 
 fn bad_request(e: impl Into<anyhow::Error>) -> Response<Body> {
     info!("Answering bad request: {}", e.into());
@@ -48,16 +49,12 @@ impl<T: SecretGetter> SignwayServer<T> {
         &self,
         mut req: Request<Body>,
     ) -> hyper::Result<Response<Body>> {
-        let mut unverified_signed_request = match UnverifiedSignedRequest::from_request(&req) {
+        let mut unverified_req = match UnverifiedSignedRequest::from_request(&req) {
             Ok(a) => a,
             Err(e) => return Ok(bad_request(e)),
         };
 
-        match self
-            .gateway_middleware
-            .on_req(&unverified_signed_request)
-            .await
-        {
+        match self.gateway_middleware.on_req(&unverified_req).await {
             Ok(a) => {
                 if let Some(early_response) = a {
                     return Ok(Response::builder()
@@ -69,22 +66,17 @@ impl<T: SecretGetter> SignwayServer<T> {
             Err(e) => return Ok(internal_server(anyhow!("{e}"))),
         };
 
-        let secret = match self
-            .secret_getter
-            .get_secret(&unverified_signed_request.info.id)
-            .await
-        {
-            Ok(a) => a,
+        let secret = match self.secret_getter.get_secret(&unverified_req.info.id).await {
+            Ok(res) => match res {
+                GetSecretResponse::Secret(secret) => secret,
+                GetSecretResponse::EarlyResponse(early_res) => return Ok(early_res),
+            },
             Err(e) => return Ok(internal_server(anyhow!("{e}"))),
         };
 
-        let Some(secret) = secret else {
-            return Ok(bad_request(anyhow!("Missing secret")));
-        };
+        let signer = UrlSigner::new(&unverified_req.info.id, &secret.secret);
 
-        let signer = UrlSigner::new(&unverified_signed_request.info.id, &secret.secret);
-
-        if unverified_signed_request.info.body_is_pending {
+        if unverified_req.info.body_is_pending {
             let content_length = match Self::parse_content_length(&req) {
                 Ok(a) => a,
                 Err(e) => return Ok(bad_request(e)),
@@ -95,15 +87,15 @@ impl<T: SecretGetter> SignwayServer<T> {
                 Err(e) => return Ok(bad_request(e)),
             };
             req = Request::from_parts(parts, string_to_body(&body));
-            unverified_signed_request.elements.body = Some(body);
+            unverified_req.elements.body = Some(body);
         }
 
-        let Some(host) = unverified_signed_request.elements.proxy_url.host() else {
+        let Some(host) = unverified_req.elements.proxy_url.host() else {
             return Ok(bad_request(anyhow!("Invalid host in proxy url")))
         };
         let host = host.to_string();
 
-        let proxy_uri = match Uri::from_str(unverified_signed_request.elements.proxy_url.as_str()) {
+        let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
             Ok(a) => a,
             Err(e) => return Ok(bad_request(e)),
         };
@@ -111,8 +103,8 @@ impl<T: SecretGetter> SignwayServer<T> {
         req.headers_mut().insert("host", host.parse().unwrap());
         req.headers_mut().extend(secret.headers_extension);
 
-        let declared_signature = &unverified_signed_request.info.signature;
-        let actual_signature = match signer.get_signature(&unverified_signed_request.elements) {
+        let declared_signature = &unverified_req.info.signature;
+        let actual_signature = match signer.get_signature(&unverified_req.elements) {
             Ok(a) => a,
             Err(e) => return Ok(internal_server(e)),
         };
@@ -123,7 +115,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 
         info!(
             "Id {} provided a valid signature, redirecting the request...",
-            unverified_signed_request.info.id
+            unverified_req.info.id
         );
         match self.client.request(req).await {
             Ok(a) => Ok(a),
@@ -138,7 +130,7 @@ mod tests {
 
     use hyper::HeaderMap;
 
-    use crate::_test_tools::tests::{InMemorySecretGetter, json_path, ReqBuilder};
+    use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::X_PROXY;
 

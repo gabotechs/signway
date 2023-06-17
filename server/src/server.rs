@@ -103,6 +103,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 
 #[cfg(test)]
 mod tests {
+    use hyper::http::HeaderValue;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU16, Ordering};
 
@@ -159,12 +160,7 @@ mod tests {
         let signer = UrlSigner::new("foo", "foo-secret");
         let signed_url = signer.get_signed_url(host, &base_request()).unwrap();
 
-        let response = reqwest::Client::new()
-            .get(signed_url)
-            .header("host", "localhost:3000")
-            .send()
-            .await
-            .unwrap();
+        let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 
         let status = response.status();
         assert_eq!(status, StatusCode::OK);
@@ -178,7 +174,6 @@ mod tests {
 
         let response = reqwest::Client::new()
             .request(Method::OPTIONS, host)
-            .header("host", "localhost:3000")
             .send()
             .await
             .unwrap();
@@ -189,21 +184,21 @@ mod tests {
             response
                 .headers()
                 .get("access-control-allow-origin")
-                .unwrap(),
+                .unwrap_or(&HeaderValue::from_str("NONE").unwrap()),
             "*"
         );
         assert_eq!(
             response
                 .headers()
                 .get("access-control-allow-headers")
-                .unwrap(),
+                .unwrap_or(&HeaderValue::from_str("NONE").unwrap()),
             "*"
         );
         assert_eq!(
             response
                 .headers()
                 .get("access-control-allow-methods")
-                .unwrap(),
+                .unwrap_or(&HeaderValue::from_str("NONE").unwrap()),
             "*"
         )
     }
@@ -218,12 +213,7 @@ mod tests {
 
         let signed_url = bad_signer.get_signed_url(host, &base_request()).unwrap();
 
-        let response = reqwest::Client::new()
-            .get(signed_url)
-            .header("host", "localhost:3000")
-            .send()
-            .await
-            .unwrap();
+        let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 
         let status = response.status();
         assert_eq!(status, StatusCode::BAD_REQUEST);
