@@ -1,3 +1,4 @@
+pub use hyper;
 pub use secret_getter::*;
 pub use server::*;
 

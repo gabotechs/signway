@@ -8,14 +8,14 @@ pub(crate) mod tests {
 
     use anyhow::{anyhow, Context};
     use async_trait::async_trait;
-    use hyper::{HeaderMap, Uri};
     use hyper::header::HeaderName;
+    use hyper::{HeaderMap, Response, StatusCode, Uri};
     use serde::de::DeserializeOwned;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::{SecretGetter, SecretGetterResult};
     use crate::signing::{ElementsToSign, UrlSigner};
+    use crate::{GetSecretResponse, SecretGetter, SecretGetterResult};
 
     use super::*;
 
@@ -158,8 +158,20 @@ pub(crate) mod tests {
     impl SecretGetter for InMemorySecretGetter {
         type Error = Infallible;
 
-        async fn get_secret(&self, id: &str) -> Result<Option<SecretGetterResult>, Self::Error> {
-            Ok(self.0.get(id).cloned())
+        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
+            let secret = match self.0.get(id).cloned() {
+                Some(a) => a,
+                None => {
+                    return Ok(GetSecretResponse::EarlyResponse(
+                        Response::builder()
+                            .status(StatusCode::UNAUTHORIZED)
+                            .body(Body::empty())
+                            .unwrap(),
+                    ))
+                }
+            };
+
+            Ok(GetSecretResponse::Secret(secret))
         }
     }
 }
