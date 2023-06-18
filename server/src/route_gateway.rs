@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::str::FromStr;
 
 use anyhow::anyhow;
@@ -12,8 +13,8 @@ use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
 use crate::GetSecretResponse;
 
-fn bad_request(e: impl Into<anyhow::Error>) -> Response<Body> {
-    info!("Answering bad request: {}", e.into());
+fn bad_request(e: impl Display) -> Response<Body> {
+    info!("Answering bad request: {e}");
     Response::builder()
         .status(StatusCode::BAD_REQUEST)
         .body(Body::empty())
@@ -84,7 +85,7 @@ impl<T: SecretGetter> SignwayServer<T> {
         }
 
         let Some(host) = unverified_req.elements.proxy_url.host() else {
-            return Ok(bad_request(anyhow!("Invalid host in proxy url")))
+            return Ok(bad_request("Invalid host in proxy url"))
         };
         let host = host.to_string();
 
@@ -103,7 +104,7 @@ impl<T: SecretGetter> SignwayServer<T> {
         };
 
         if declared_signature != &actual_signature {
-            return Ok(bad_request(anyhow!("signature mismatch")));
+            return Ok(bad_request("signature mismatch"));
         }
 
         info!(
