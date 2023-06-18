@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use hyper::body::Body;
+use hyper::body::{Body, HttpBody};
 use hyper::{Request, Response, StatusCode, Uri};
 use tracing::{error, info};
 
@@ -11,7 +11,7 @@ use crate::gateway_callbacks::CallbackResult;
 use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
-use crate::GetSecretResponse;
+use crate::{BytesTransferredKind, GetSecretResponse};
 
 fn bad_request(e: impl Display) -> Response<Body> {
     info!("Answering bad request: {e}");
@@ -39,6 +39,30 @@ fn bad_gateway(e: impl Display) -> Response<Body> {
 }
 
 impl<T: SecretGetter> SignwayServer<T> {
+    fn monitor_body(&self, mut body: Body, id: String, kind: BytesTransferredKind) -> Body {
+        let (mut sender, new_body) = Body::channel();
+
+        let cb = self.on_bytes_transferred.clone();
+
+        let f = || async move {
+            let mut count = 0;
+            while let Some(chunk) = body.data().await {
+                if let Ok(data) = chunk {
+                    count += data.len();
+                    if let Err(_err) = sender.send_data(data).await {
+                        return;
+                    }
+                } else {
+                    return sender.abort();
+                }
+            }
+            cb.call(&id, count, kind).await;
+        };
+
+        tokio::spawn(f());
+        new_body
+    }
+
     fn parse_content_length<B>(req: &Request<B>) -> anyhow::Result<usize> {
         let content_length = req
             .headers()
@@ -55,14 +79,13 @@ impl<T: SecretGetter> SignwayServer<T> {
             Ok(a) => a,
             Err(e) => return Ok(bad_request(e)),
         };
+        let id = unverified_req.info.id;
 
-        if let CallbackResult::EarlyResponse(res) =
-            self.on_request.call(&unverified_req.info.id, &req).await
-        {
+        if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &req).await {
             return Ok(res);
         };
 
-        let secret = match self.secret_getter.get_secret(&unverified_req.info.id).await {
+        let secret = match self.secret_getter.get_secret(&id).await {
             Ok(res) => match res {
                 GetSecretResponse::Secret(secret) => secret,
                 GetSecretResponse::EarlyResponse(early_res) => return Ok(early_res),
@@ -70,7 +93,7 @@ impl<T: SecretGetter> SignwayServer<T> {
             Err(e) => return Ok(internal_server(e)),
         };
 
-        let signer = UrlSigner::new(&unverified_req.info.id, &secret.secret);
+        let signer = UrlSigner::new(&id, &secret.secret);
 
         if unverified_req.info.body_is_pending {
             let content_length = match Self::parse_content_length(&req) {
@@ -109,20 +132,37 @@ impl<T: SecretGetter> SignwayServer<T> {
             return Ok(bad_request("signature mismatch"));
         }
 
-        info!(
-            "Id {} provided a valid signature, redirecting the request...",
-            unverified_req.info.id
-        );
-        match self.client.request(req).await {
-            Ok(res) => {
-                if let CallbackResult::EarlyResponse(res) =
-                    self.on_success.call(&unverified_req.info.id, &res).await
-                {
-                    return Ok(res);
-                };
-                Ok(res)
+        info!("Id {id} provided a valid signature, redirecting the request...",);
+
+        if self.monitor_bytes {
+            let (parts, body) = req.into_parts();
+            let body = self.monitor_body(body, id.clone(), BytesTransferredKind::Out);
+            let req = Request::from_parts(parts, body);
+            match self.client.request(req).await {
+                Ok(res) => {
+                    if let CallbackResult::EarlyResponse(res) =
+                        self.on_success.call(&id, &res).await
+                    {
+                        return Ok(res);
+                    };
+                    let (parts, body) = res.into_parts();
+                    let body = self.monitor_body(body, id, BytesTransferredKind::In);
+                    Ok(Response::from_parts(parts, body))
+                }
+                Err(e) => Ok(bad_gateway(e)),
             }
-            Err(e) => Ok(bad_gateway(e)),
+        } else {
+            match self.client.request(req).await {
+                Ok(res) => {
+                    if let CallbackResult::EarlyResponse(res) =
+                        self.on_success.call(&id, &res).await
+                    {
+                        return Ok(res);
+                    };
+                    Ok(res)
+                }
+                Err(e) => Ok(bad_gateway(e)),
+            }
         }
     }
 }
