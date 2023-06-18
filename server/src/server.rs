@@ -114,10 +114,10 @@ impl<T: SecretGetter> SignwayServer<T> {
 
 #[cfg(test)]
 mod tests {
-    use hyper::http::HeaderValue;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU16, Ordering};
 
+    use hyper::http::HeaderValue;
     use hyper::StatusCode;
     use reqwest::header::HeaderMap;
     use time::{OffsetDateTime, PrimitiveDateTime};

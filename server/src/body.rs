@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
-use hyper::Body;
 use hyper::body::HttpBody;
+use hyper::Body;
 
 pub(crate) async fn body_to_string(mut body: Body, length: usize) -> Result<String> {
     let mut data = vec![];
