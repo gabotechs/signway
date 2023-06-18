@@ -11,7 +11,7 @@ use crate::gateway_callbacks::CallbackResult;
 use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
-use crate::{BytesTransferredKind, GetSecretResponse};
+use crate::{BytesTransferredInfo, BytesTransferredKind, GetSecretResponse};
 
 fn bad_request(e: impl Display) -> Response<Body> {
     info!("Answering bad request: {e}");
@@ -39,7 +39,7 @@ fn bad_gateway(e: impl Display) -> Response<Body> {
 }
 
 impl<T: SecretGetter> SignwayServer<T> {
-    fn monitor_body(&self, mut body: Body, id: String, kind: BytesTransferredKind) -> Body {
+    fn monitor_body(&self, mut body: Body, info: BytesTransferredInfo) -> Body {
         let (mut sender, new_body) = Body::channel();
 
         let cb = self.on_bytes_transferred.clone();
@@ -56,7 +56,7 @@ impl<T: SecretGetter> SignwayServer<T> {
                     return sender.abort();
                 }
             }
-            cb.call(&id, count, kind).await;
+            cb.call(count, info).await;
         };
 
         tokio::spawn(f());
@@ -134,9 +134,15 @@ impl<T: SecretGetter> SignwayServer<T> {
 
         info!("Id {id} provided a valid signature, redirecting the request...",);
 
+        let info = BytesTransferredInfo {
+            id: id.to_string(),
+            proxy_url: unverified_req.elements.proxy_url.clone(),
+            kind: BytesTransferredKind::Out,
+        };
+
         if self.monitor_bytes {
             let (parts, body) = req.into_parts();
-            let body = self.monitor_body(body, id.clone(), BytesTransferredKind::Out);
+            let body = self.monitor_body(body, info);
             req = Request::from_parts(parts, body);
         }
 
@@ -148,9 +154,15 @@ impl<T: SecretGetter> SignwayServer<T> {
             return Ok(res);
         };
 
+        let info = BytesTransferredInfo {
+            id: id.to_string(),
+            proxy_url: unverified_req.elements.proxy_url,
+            kind: BytesTransferredKind::Out,
+        };
+
         if self.monitor_bytes {
             let (parts, body) = res.into_parts();
-            let body = self.monitor_body(body, id, BytesTransferredKind::In);
+            let body = self.monitor_body(body, info);
             res = Response::from_parts(parts, body);
         }
         Ok(res)

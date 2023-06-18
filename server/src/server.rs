@@ -14,7 +14,7 @@ use tracing::{error, info};
 
 use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
-use crate::{BytesTransferredKind, OnBytesTransferred};
+use crate::{BytesTransferredInfo, OnBytesTransferred};
 
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
@@ -44,7 +44,7 @@ impl OnSuccess for NoneCallback {
 
 #[async_trait]
 impl OnBytesTransferred for NoneCallback {
-    async fn call(&self, _id: &str, _bytes: usize, _kind: BytesTransferredKind) {}
+    async fn call(&self, _bytes: usize, _info: BytesTransferredInfo) {}
 }
 
 impl<T: SecretGetter> SignwayServer<T> {
