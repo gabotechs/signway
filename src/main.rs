@@ -29,7 +29,7 @@ struct Args {
 
     #[arg(
         long,
-        help = "disables the bytes transferred monitoring. This feature is experimental, because hyper does not put things easy to track IO results in the responses, and the current implementation might have some performance implications."
+        help = "disables the bytes transferred monitoring. This feature is experimental, because hyper does not put things easy for tracking IO results in the responses, and the current implementation might have some performance implications. https://github.com/hyperium/hyper/issues/2181"
     )]
     no_bytes_monitor: bool,
 }
