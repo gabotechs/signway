@@ -8,12 +8,12 @@ pub enum CallbackResult {
 
 #[async_trait]
 pub trait OnRequest: Sync + Send {
-    async fn call(&self, req: &Request<Body>) -> CallbackResult;
+    async fn call(&self, id: &str, req: &Request<Body>) -> CallbackResult;
 }
 
 #[async_trait]
 pub trait OnSuccess: Sync + Send {
-    async fn call(&self, res: &Response<Body>) -> CallbackResult;
+    async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult;
 }
 
 #[cfg(test)]
@@ -54,7 +54,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnRequest for SizeCollector<'a> {
-        async fn call(&self, req: &Request<Body>) -> CallbackResult {
+        async fn call(&self, _id: &str, req: &Request<Body>) -> CallbackResult {
             self.0.fetch_add(req.size_hint().exact().unwrap(), SeqCst);
             CallbackResult::Empty
         }
@@ -62,7 +62,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnSuccess for SizeCollector<'a> {
-        async fn call(&self, res: &Response<Body>) -> CallbackResult {
+        async fn call(&self, _id: &str, res: &Response<Body>) -> CallbackResult {
             self.0.fetch_add(res.size_hint().exact().unwrap(), SeqCst);
             CallbackResult::Empty
         }
