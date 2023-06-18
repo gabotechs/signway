@@ -8,7 +8,7 @@ use tracing::info;
 use signway_server::hyper::header::HeaderName;
 use signway_server::hyper::{Body, Response, StatusCode};
 use signway_server::{
-    BytesTransferredKind, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
+    BytesTransferredInfo, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
     SecretGetterResult, SignwayServer,
 };
 
@@ -89,8 +89,9 @@ struct BytesTransferredLogger;
 
 #[async_trait]
 impl OnBytesTransferred for BytesTransferredLogger {
-    async fn call(&self, id: &str, bytes: usize, kind: BytesTransferredKind) {
-        let kind = kind.to_string();
+    async fn call(&self, bytes: usize, info: BytesTransferredInfo) {
+        let kind = info.kind.to_string();
+        let id = info.id;
         info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
     }
 }

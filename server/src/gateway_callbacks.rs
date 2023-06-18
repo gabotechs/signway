@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use hyper::{Body, Request, Response};
 use std::fmt::{Display, Formatter};
+use url::Url;
 
 pub enum CallbackResult {
     EarlyResponse(Response<Body>),
@@ -17,7 +18,7 @@ pub trait OnSuccess: Sync + Send {
     async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BytesTransferredKind {
     In,
     Out,
@@ -36,9 +37,16 @@ impl Display for BytesTransferredKind {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct BytesTransferredInfo {
+    pub id: String,
+    pub proxy_url: Url,
+    pub kind: BytesTransferredKind,
+}
+
 #[async_trait]
 pub trait OnBytesTransferred: Sync + Send {
-    async fn call(&self, id: &str, bytes: usize, kind: BytesTransferredKind);
+    async fn call(&self, bytes: usize, info: BytesTransferredInfo);
 }
 
 #[cfg(test)]
@@ -47,7 +55,7 @@ mod tests {
     use crate::body::body_to_string;
     use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
     use crate::{
-        BytesTransferredKind, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
+        BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
     };
     use async_trait::async_trait;
     use hyper::body::HttpBody;
@@ -98,7 +106,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnBytesTransferred for SizeCollector<'a> {
-        async fn call(&self, _id: &str, bytes: usize, _kind: BytesTransferredKind) {
+        async fn call(&self, bytes: usize, _info: BytesTransferredInfo) {
             self.0.fetch_add(bytes as u64, SeqCst);
         }
     }
