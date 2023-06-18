@@ -6,6 +6,7 @@ use hyper::{Request, Response, StatusCode, Uri};
 use tracing::{error, info};
 
 use crate::body::{body_to_string, string_to_body};
+use crate::gateway_callbacks::CallbackResult;
 use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
@@ -54,16 +55,8 @@ impl<T: SecretGetter> SignwayServer<T> {
             Err(e) => return Ok(bad_request(e)),
         };
 
-        match self.gateway_middleware.on_req(&unverified_req).await {
-            Ok(a) => {
-                if let Some(early_response) = a {
-                    return Ok(Response::builder()
-                        .status(early_response.status)
-                        .body(string_to_body(&early_response.message))
-                        .unwrap());
-                }
-            }
-            Err(e) => return Ok(internal_server(anyhow!("{e}"))),
+        if let CallbackResult::EarlyResponse(res) = self.on_request.call(&req).await {
+            return Ok(res);
         };
 
         let secret = match self.secret_getter.get_secret(&unverified_req.info.id).await {
@@ -118,7 +111,12 @@ impl<T: SecretGetter> SignwayServer<T> {
             unverified_req.info.id
         );
         match self.client.request(req).await {
-            Ok(a) => Ok(a),
+            Ok(res) => {
+                if let CallbackResult::EarlyResponse(res) = self.on_success.call(&res).await {
+                    return Ok(res);
+                };
+                Ok(res)
+            }
             Err(e) => Ok(bad_gateway(e)),
         }
     }
