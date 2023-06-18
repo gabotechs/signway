@@ -21,20 +21,20 @@ fn bad_request(e: impl Display) -> Response<Body> {
         .unwrap()
 }
 
-fn internal_server(e: impl Into<anyhow::Error>) -> Response<Body> {
-    error!("Answering internal server error: {}", e.into());
+fn internal_server(e: impl Display) -> Response<Body> {
+    error!("Answering internal server error: {e}");
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .body(Body::empty())
         .unwrap()
 }
 
-fn bad_gateway(e: impl Into<anyhow::Error>) -> Response<Body> {
-    let err = e.into();
-    error!("Answering bad gateway {}", err);
+fn bad_gateway(e: impl Display) -> Response<Body> {
+    let err = format!("{e}");
+    error!("Answering bad gateway: {err}");
     Response::builder()
         .status(StatusCode::BAD_GATEWAY)
-        .body(string_to_body(&err.to_string()))
+        .body(string_to_body(&err))
         .unwrap()
 }
 
@@ -65,7 +65,7 @@ impl<T: SecretGetter> SignwayServer<T> {
                 GetSecretResponse::Secret(secret) => secret,
                 GetSecretResponse::EarlyResponse(early_res) => return Ok(early_res),
             },
-            Err(e) => return Ok(internal_server(anyhow!("{e}"))),
+            Err(e) => return Ok(internal_server(e)),
         };
 
         let signer = UrlSigner::new(&unverified_req.info.id, &secret.secret);
