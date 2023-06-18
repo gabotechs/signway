@@ -28,14 +28,14 @@ pub(crate) struct NoneOnSuccess;
 
 #[async_trait]
 impl OnRequest for NoneOnRequest {
-    async fn call(&self, _req: &Request<Body>) -> CallbackResult {
+    async fn call(&self, _id: &str, _req: &Request<Body>) -> CallbackResult {
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
 impl OnSuccess for NoneOnSuccess {
-    async fn call(&self, _res: &Response<Body>) -> CallbackResult {
+    async fn call(&self, _id: &str, _res: &Response<Body>) -> CallbackResult {
         CallbackResult::Empty
     }
 }

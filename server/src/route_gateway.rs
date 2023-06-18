@@ -56,7 +56,9 @@ impl<T: SecretGetter> SignwayServer<T> {
             Err(e) => return Ok(bad_request(e)),
         };
 
-        if let CallbackResult::EarlyResponse(res) = self.on_request.call(&req).await {
+        if let CallbackResult::EarlyResponse(res) =
+            self.on_request.call(&unverified_req.info.id, &req).await
+        {
             return Ok(res);
         };
 
@@ -113,7 +115,9 @@ impl<T: SecretGetter> SignwayServer<T> {
         );
         match self.client.request(req).await {
             Ok(res) => {
-                if let CallbackResult::EarlyResponse(res) = self.on_success.call(&res).await {
+                if let CallbackResult::EarlyResponse(res) =
+                    self.on_success.call(&unverified_req.info.id, &res).await
+                {
                     return Ok(res);
                 };
                 Ok(res)

@@ -84,20 +84,25 @@ struct CallbackLogger;
 
 #[async_trait]
 impl OnRequest for CallbackLogger {
-    async fn call(&self, req: &Request<Body>) -> CallbackResult {
+    async fn call(&self, id: &str, req: &Request<Body>) -> CallbackResult {
         let size = req.size_hint().exact().unwrap_or(req.size_hint().lower());
-        info!(size = size, "Received a request with size {size} Bytes");
+        info!(
+            size = size,
+            id = id,
+            "Received a request with size {size} Bytes from id {id}"
+        );
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
 impl OnSuccess for CallbackLogger {
-    async fn call(&self, res: &Response<Body>) -> CallbackResult {
+    async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult {
         let size = res.size_hint().exact().unwrap_or(res.size_hint().lower());
         info!(
             size = size,
-            "Received a proxy-ed response with size {size} Bytes"
+            id = id,
+            "Received a proxy-ed response with size {size} Bytes from id {id}"
         );
         CallbackResult::Empty
     }
