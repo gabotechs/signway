@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -8,31 +7,36 @@ use anyhow::Result;
 use async_trait::async_trait;
 use hyper::client::HttpConnector;
 use hyper::service::service_fn;
-use hyper::{Body, Method};
+use hyper::{Body, Method, Request, Response};
 use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
-use crate::gateway_middleware::{GatewayMiddleware, GatewayMiddlewareResponse};
+use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
-use crate::signing::UnverifiedSignedRequest;
 
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
     pub secret_getter: T,
-    pub gateway_middleware: Box<dyn GatewayMiddleware>,
+    pub on_request: Box<dyn OnRequest>,
+    pub on_success: Box<dyn OnSuccess>,
     pub(crate) client: hyper::Client<HttpsConnector<HttpConnector>, Body>,
 }
 
-pub(crate) struct NoneGatewayMiddleware;
+pub(crate) struct NoneOnRequest;
+pub(crate) struct NoneOnSuccess;
 
 #[async_trait]
-impl GatewayMiddleware for NoneGatewayMiddleware {
-    async fn on_req(
-        &self,
-        _req: &UnverifiedSignedRequest,
-    ) -> Result<Option<GatewayMiddlewareResponse>, Box<dyn Display>> {
-        Ok(None)
+impl OnRequest for NoneOnRequest {
+    async fn call(&self, _req: &Request<Body>) -> CallbackResult {
+        CallbackResult::Empty
+    }
+}
+
+#[async_trait]
+impl OnSuccess for NoneOnSuccess {
+    async fn call(&self, _res: &Response<Body>) -> CallbackResult {
+        CallbackResult::Empty
     }
 }
 
@@ -45,7 +49,8 @@ impl<T: SecretGetter> SignwayServer<T> {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter,
-            gateway_middleware: Box::new(NoneGatewayMiddleware {}),
+            on_request: Box::new(NoneOnRequest {}),
+            on_success: Box::new(NoneOnSuccess {}),
             client,
         }
     }
@@ -56,13 +61,19 @@ impl<T: SecretGetter> SignwayServer<T> {
         SignwayServer {
             port,
             secret_getter,
-            gateway_middleware: Box::new(NoneGatewayMiddleware {}),
+            on_request: Box::new(NoneOnRequest {}),
+            on_success: Box::new(NoneOnSuccess {}),
             client,
         }
     }
 
-    pub fn with_middleware(mut self, gateway_middleware: impl GatewayMiddleware + 'static) -> Self {
-        self.gateway_middleware = Box::new(gateway_middleware);
+    pub fn on_success(mut self, callback: impl OnSuccess + 'static) -> Self {
+        self.on_success = Box::new(callback);
+        self
+    }
+
+    pub fn on_request(mut self, callback: impl OnRequest + 'static) -> Self {
+        self.on_request = Box::new(callback);
         self
     }
 

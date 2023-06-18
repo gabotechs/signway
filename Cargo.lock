@@ -940,6 +940,7 @@ dependencies = [
  "clap",
  "signway-server",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 

@@ -3,11 +3,14 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use clap::Parser;
+use tracing::info;
 
+use signway_server::hyper::body::HttpBody;
 use signway_server::hyper::header::HeaderName;
-use signway_server::hyper::{Body, Response, StatusCode};
+use signway_server::hyper::{Body, Request, Response, StatusCode};
 use signway_server::{
-    GetSecretResponse, HeaderMap, SecretGetter, SecretGetterResult, SignwayServer,
+    CallbackResult, GetSecretResponse, HeaderMap, OnRequest, OnSuccess, SecretGetter,
+    SecretGetterResult, SignwayServer,
 };
 
 #[derive(Parser, Debug)]
@@ -77,12 +80,37 @@ impl SecretGetter for Config {
     }
 }
 
+struct CallbackLogger;
+
+#[async_trait]
+impl OnRequest for CallbackLogger {
+    async fn call(&self, req: &Request<Body>) -> CallbackResult {
+        let size = req.size_hint().exact().unwrap_or(req.size_hint().lower());
+        info!(size = size, "Received a request with size {size} Bytes");
+        CallbackResult::Empty
+    }
+}
+
+#[async_trait]
+impl OnSuccess for CallbackLogger {
+    async fn call(&self, res: &Response<Body>) -> CallbackResult {
+        let size = res.size_hint().exact().unwrap_or(res.size_hint().lower());
+        info!(
+            size = size,
+            "Received a proxy-ed response with size {size} Bytes"
+        );
+        CallbackResult::Empty
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Args = Args::parse();
     let config: Config = args.try_into()?;
     tracing_subscriber::fmt().json().init();
-    let server = SignwayServer::from_env(config);
+    let server = SignwayServer::from_env(config)
+        .on_request(CallbackLogger {})
+        .on_success(CallbackLogger {});
 
     tokio::select! {
         result = server.start() => {
