@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use hyper::{Body, Request, Response};
+use std::fmt::{Display, Formatter};
 
 pub enum CallbackResult {
     EarlyResponse(Response<Body>),
@@ -16,11 +17,38 @@ pub trait OnSuccess: Sync + Send {
     async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult;
 }
 
+#[derive(Debug)]
+pub enum BytesTransferredKind {
+    In,
+    Out,
+}
+
+impl Display for BytesTransferredKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                BytesTransferredKind::In => "IN",
+                BytesTransferredKind::Out => "OUT",
+            }
+        )
+    }
+}
+
+#[async_trait]
+pub trait OnBytesTransferred: Sync + Send {
+    async fn call(&self, id: &str, bytes: usize, kind: BytesTransferredKind);
+}
+
 #[cfg(test)]
 mod tests {
     use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
+    use crate::body::body_to_string;
     use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
-    use crate::{HeaderMap, SecretGetterResult, SignwayServer};
+    use crate::{
+        BytesTransferredKind, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
+    };
     use async_trait::async_trait;
     use hyper::body::HttpBody;
     use hyper::{Body, Request, Response, StatusCode};
@@ -68,6 +96,13 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl<'a> OnBytesTransferred for SizeCollector<'a> {
+        async fn call(&self, _id: &str, bytes: usize, _kind: BytesTransferredKind) {
+            self.0.fetch_add(bytes as u64, SeqCst);
+        }
+    }
+
     #[tokio::test]
     async fn test_on_request() {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -96,5 +131,22 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 396);
+    }
+
+    #[tokio::test]
+    async fn test_on_bytes_transferred() {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let size_collector = SizeCollector(&COUNTER);
+
+        let response = server()
+            .on_bytes_transferred(size_collector)
+            .route_gateway(req())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(COUNTER.load(SeqCst), 3);
+        body_to_string(response.into_body(), 396).await.unwrap();
+        assert_eq!(COUNTER.load(SeqCst), 399);
     }
 }

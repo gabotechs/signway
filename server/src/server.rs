@@ -14,30 +14,37 @@ use tracing::{error, info};
 
 use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
+use crate::{BytesTransferredKind, OnBytesTransferred};
 
 pub struct SignwayServer<T: SecretGetter + 'static> {
     pub port: u16,
     pub secret_getter: T,
     pub on_request: Box<dyn OnRequest>,
     pub on_success: Box<dyn OnSuccess>,
+    pub on_bytes_transferred: Arc<dyn OnBytesTransferred>,
+    pub(crate) monitor_bytes: bool,
     pub(crate) client: hyper::Client<HttpsConnector<HttpConnector>, Body>,
 }
 
-pub(crate) struct NoneOnRequest;
-pub(crate) struct NoneOnSuccess;
+pub(crate) struct NoneCallback;
 
 #[async_trait]
-impl OnRequest for NoneOnRequest {
+impl OnRequest for NoneCallback {
     async fn call(&self, _id: &str, _req: &Request<Body>) -> CallbackResult {
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
-impl OnSuccess for NoneOnSuccess {
+impl OnSuccess for NoneCallback {
     async fn call(&self, _id: &str, _res: &Response<Body>) -> CallbackResult {
         CallbackResult::Empty
     }
+}
+
+#[async_trait]
+impl OnBytesTransferred for NoneCallback {
+    async fn call(&self, _id: &str, _bytes: usize, _kind: BytesTransferredKind) {}
 }
 
 impl<T: SecretGetter> SignwayServer<T> {
@@ -49,8 +56,10 @@ impl<T: SecretGetter> SignwayServer<T> {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter,
-            on_request: Box::new(NoneOnRequest {}),
-            on_success: Box::new(NoneOnSuccess {}),
+            on_request: Box::new(NoneCallback {}),
+            on_success: Box::new(NoneCallback {}),
+            on_bytes_transferred: Arc::new(NoneCallback {}),
+            monitor_bytes: false,
             client,
         }
     }
@@ -61,8 +70,10 @@ impl<T: SecretGetter> SignwayServer<T> {
         SignwayServer {
             port,
             secret_getter,
-            on_request: Box::new(NoneOnRequest {}),
-            on_success: Box::new(NoneOnSuccess {}),
+            on_request: Box::new(NoneCallback {}),
+            on_success: Box::new(NoneCallback {}),
+            on_bytes_transferred: Arc::new(NoneCallback {}),
+            monitor_bytes: false,
             client,
         }
     }
@@ -74,6 +85,12 @@ impl<T: SecretGetter> SignwayServer<T> {
 
     pub fn on_request(mut self, callback: impl OnRequest + 'static) -> Self {
         self.on_request = Box::new(callback);
+        self
+    }
+
+    pub fn on_bytes_transferred(mut self, callback: impl OnBytesTransferred + 'static) -> Self {
+        self.on_bytes_transferred = Arc::new(callback);
+        self.monitor_bytes = true;
         self
     }
 
@@ -93,9 +110,9 @@ impl<T: SecretGetter> SignwayServer<T> {
                 let arc_self = arc_self.clone();
                 async move {
                     if req.method() == Method::OPTIONS {
-                        arc_self.route_cors(req).await
+                        Self::route_cors(&arc_self, req).await
                     } else {
-                        arc_self.route_gateway(req).await
+                        Self::route_gateway(&arc_self, req).await
                     }
                 }
             });

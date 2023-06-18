@@ -5,11 +5,10 @@ use async_trait::async_trait;
 use clap::Parser;
 use tracing::info;
 
-use signway_server::hyper::body::HttpBody;
 use signway_server::hyper::header::HeaderName;
-use signway_server::hyper::{Body, Request, Response, StatusCode};
+use signway_server::hyper::{Body, Response, StatusCode};
 use signway_server::{
-    CallbackResult, GetSecretResponse, HeaderMap, OnRequest, OnSuccess, SecretGetter,
+    BytesTransferredKind, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
     SecretGetterResult, SignwayServer,
 };
 
@@ -27,6 +26,12 @@ struct Args {
         help = "if a signed url is authentic, this headers will be added to the proxy-ed request"
     )]
     header: Vec<String>,
+
+    #[arg(
+        long,
+        help = "disables the bytes transferred monitoring. This feature is experimental, because hyper does not put things easy to track IO results in the responses, and the current implementation might have some performance implications."
+    )]
+    no_bytes_monitor: bool,
 }
 
 struct Config {
@@ -80,42 +85,26 @@ impl SecretGetter for Config {
     }
 }
 
-struct CallbackLogger;
+struct BytesTransferredLogger;
 
 #[async_trait]
-impl OnRequest for CallbackLogger {
-    async fn call(&self, id: &str, req: &Request<Body>) -> CallbackResult {
-        let size = req.size_hint().exact().unwrap_or(req.size_hint().lower());
-        info!(
-            size = size,
-            id = id,
-            "Received a request with size {size} Bytes from id {id}"
-        );
-        CallbackResult::Empty
-    }
-}
-
-#[async_trait]
-impl OnSuccess for CallbackLogger {
-    async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult {
-        let size = res.size_hint().exact().unwrap_or(res.size_hint().lower());
-        info!(
-            size = size,
-            id = id,
-            "Received a proxy-ed response with size {size} Bytes from id {id}"
-        );
-        CallbackResult::Empty
+impl OnBytesTransferred for BytesTransferredLogger {
+    async fn call(&self, id: &str, bytes: usize, kind: BytesTransferredKind) {
+        let kind = kind.to_string();
+        info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
     }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Args = Args::parse();
+    let disable_monitoring = args.no_bytes_monitor;
     let config: Config = args.try_into()?;
     tracing_subscriber::fmt().json().init();
-    let server = SignwayServer::from_env(config)
-        .on_request(CallbackLogger {})
-        .on_success(CallbackLogger {});
+    let mut server = SignwayServer::from_env(config);
+    if !disable_monitoring {
+        server = server.on_bytes_transferred(BytesTransferredLogger {});
+    }
 
     tokio::select! {
         result = server.start() => {
