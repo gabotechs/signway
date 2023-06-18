@@ -137,33 +137,23 @@ impl<T: SecretGetter> SignwayServer<T> {
         if self.monitor_bytes {
             let (parts, body) = req.into_parts();
             let body = self.monitor_body(body, id.clone(), BytesTransferredKind::Out);
-            let req = Request::from_parts(parts, body);
-            match self.client.request(req).await {
-                Ok(res) => {
-                    if let CallbackResult::EarlyResponse(res) =
-                        self.on_success.call(&id, &res).await
-                    {
-                        return Ok(res);
-                    };
-                    let (parts, body) = res.into_parts();
-                    let body = self.monitor_body(body, id, BytesTransferredKind::In);
-                    Ok(Response::from_parts(parts, body))
-                }
-                Err(e) => Ok(bad_gateway(e)),
-            }
-        } else {
-            match self.client.request(req).await {
-                Ok(res) => {
-                    if let CallbackResult::EarlyResponse(res) =
-                        self.on_success.call(&id, &res).await
-                    {
-                        return Ok(res);
-                    };
-                    Ok(res)
-                }
-                Err(e) => Ok(bad_gateway(e)),
-            }
+            req = Request::from_parts(parts, body);
         }
+
+        let mut res = match self.client.request(req).await {
+            Ok(res) => res,
+            Err(e) => return Ok(bad_gateway(e)),
+        };
+        if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res).await {
+            return Ok(res);
+        };
+
+        if self.monitor_bytes {
+            let (parts, body) = res.into_parts();
+            let body = self.monitor_body(body, id, BytesTransferredKind::In);
+            res = Response::from_parts(parts, body);
+        }
+        Ok(res)
     }
 }
 
