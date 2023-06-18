@@ -1,6 +1,7 @@
 pub use hyper;
-pub use secret_getter::*;
+
 pub use gateway_callbacks::*;
+pub use secret_getter::*;
 pub use server::*;
 
 #[cfg(test)]
