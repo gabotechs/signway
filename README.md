@@ -47,10 +47,10 @@ export SW_ID="app-id"
 export SW_SECRET="super-secure-string"
 ```
 
-Export your OpenAI key:
+Export your OpenAI's API key here:
 
 ```bash
-export OPENAI_KEY="your working token"
+export API_KEY="your working token"
 ```
 
 
@@ -60,7 +60,7 @@ Launch Signway:
 docker run -p 3000:3000 gabotechs/signway \
 $SW_ID \
 $SW_SECRET \
---header "Authorization: Bearer $OPENAI_KEY"
+--header "Authorization: Bearer $API_KEY"
   
 ```
 
