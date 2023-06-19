@@ -58,13 +58,14 @@ Launch Signway:
 
 ```bash
 docker run -p 3000:3000 gabotechs/signway \
-  $SW_ID \
-  $SW_SECRET \
-  --header "Authorization: Bearer $OPENAI_KEY"
+$SW_ID \
+$SW_SECRET \
+--header "Authorization: Bearer $OPENAI_KEY"
   
 ```
 
 Leave Signway running in this terminal...
+<br/>
 <br/>
 <br/>
 <br/>
@@ -107,7 +108,7 @@ cat << 'EOF' > sign.py
 from signway_sdk import sign_url
 import os
 
-URL= "https://api.openai.com/v1/completions"
+URL="https://api.openai.com/v1/completions"
 
 print(sign_url(
   id=os.environ['SW_ID'],
@@ -120,7 +121,7 @@ print(sign_url(
 EOF
 ```
 
-Make a request to the signed URL, as if it was OpenAI API:
+Make a request to the signed URL, as if it was OpenAI:
 
 ```bash
 curl $(python sign.py) \
