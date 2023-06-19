@@ -108,15 +108,13 @@ cat << 'EOF' > sign.py
 from signway_sdk import sign_url
 import os
 
-URL="https://api.openai.com/v1/completions"
-
 print(sign_url(
-  id=os.environ['SW_ID'],
-  secret=os.environ['SW_SECRET'],
-  host="http://localhost:3000",
-  proxy_url=URL,
-  expiry=10,
-  method="POST"
+  os.environ['SW_ID'],
+  os.environ['SW_SECRET'],
+  "http://localhost:3000",
+  "https://api.openai.com/v1/completions",
+  10,  # <- URL expiration time in s
+  "POST"
 ))
 EOF
 ```
