@@ -117,7 +117,7 @@ print(sign_url(
 EOF
 ```
 
-Make a request to the signed URL, as if it was OpenAI:
+Make a request to the generated signed URL, as if it was OpenAI:
 
 ```bash
 curl $(python sign.py) \
