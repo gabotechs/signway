@@ -54,8 +54,7 @@ export API_KEY="your working token"
 ```
 
 Launch Signway, ready for accepting requests signed with
-`SW_ID` and `SW_SECRET`, and adding the OpenAI API KEY to
-the proxy-ed requests:
+`SW_ID` and `SW_SECRET`:
 
 ```bash
 docker run -p 3000:3000 gabotechs/signway \
