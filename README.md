@@ -40,7 +40,7 @@
         <tr>
             <td> 
 
-Export the credentials for Signway:
+Export the signing credentials for Signway:
 
 ```bash
 export SW_ID="app-id"
@@ -53,8 +53,9 @@ Export your OpenAI's API key here:
 export API_KEY="your working token"
 ```
 
-
-Launch Signway:
+Launch Signway, ready for accepting requests signed with
+`SW_ID` and `SW_SECRET`, and adding the OpenAI API KEY to
+the proxy-ed requests:
 
 ```bash
 docker run -p 3000:3000 gabotechs/signway \
