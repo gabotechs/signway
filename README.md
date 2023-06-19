@@ -21,6 +21,118 @@
     <img height="150px" src="docs/src/assets/simple-scheme.png" alt="Signway scheme"/>
 </p>
 
+<p align="center">
+    <h1 align="center">Sign your requests</h1>
+</p>
+
+<table align="center">
+    <thead>
+        <tr>
+            <th>
+                <code>Terminal 1</code>: Launch Signway
+            </th>
+            <th>
+                <code>Terminal 2</code>: Create Signed URLs
+            </th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td> 
+
+Export the credentials for Signway:
+
+```bash
+export SW_ID="app-id"
+export SW_SECRET="super-secure-string"
+```
+
+Export your OpenAI key:
+
+```bash
+export OPENAI_KEY="your working token"
+```
+
+
+Launch Signway:
+
+```bash
+docker run -p 3000:3000 gabotechs/signway \
+  $SW_ID \
+  $SW_SECRET \
+  --header "Authorization: Bearer $OPENAI_KEY"
+  
+```
+
+Leave Signway running in this terminal...
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+
+</td><td>
+
+👈 Export the same credentials:
+
+```bash
+export SW_ID="app-id"
+export SW_SECRET="super-secure-string"
+```
+Install Signway's Python sdk:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install signway-sdk
+```
+
+Make a script for creating signed URLs:
+
+```python
+cat << 'EOF' > sign.py
+from signway_sdk import sign_url
+import os
+
+URL= "https://api.openai.com/v1/completions"
+
+print(sign_url(
+  id=os.environ['SW_ID'],
+  secret=os.environ['SW_SECRET'],
+  host="http://localhost:3000",
+  proxy_url=URL,
+  expiry=10,
+  method="POST"
+))
+EOF
+```
+
+Make a request to the signed URL, as if it was OpenAI API:
+
+```bash
+curl $(python sign.py) \
+-H "Content-Type: application/json" \
+-d '{
+  "model": "text-davinci-003",
+  "stream": true,
+  "prompt": "Say this is a test"
+}'
+```
+</td></tr></tbody></table>
+
 # What does it solve?
 
 Imagine that you have a setup that looks like this. Your backend accesses

@@ -55,7 +55,7 @@ export SW_SECRET="super-secure-string"
 Create a new Python file called `sign.py` and paste this content:
 
 ```python
-# sign.py
+cat << 'EOF' > sign.py
 from signway_sdk import sign_url
 import os
 
@@ -67,6 +67,7 @@ print(sign_url(
     expiry=10,
     method="POST"
 ))
+EOF
 ```
 
 Executing this script within the `venv` will output a URL that looks like this:
