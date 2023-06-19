@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-    <h1 align="center">Sign your requests</h1>
+    <h1 align="center">Sign your requests and proxy them</h1>
 </p>
 
 <table align="center">
