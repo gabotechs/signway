@@ -12,7 +12,7 @@ use signway_server::{
     SecretGetterResult, SignwayServer,
 };
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(help = "access id that is expected to sign urls for this server")]
@@ -32,6 +32,24 @@ struct Args {
         help = "disables the bytes transferred monitoring. This feature is experimental, because hyper does not put things easy for tracking IO results in the responses, and the current implementation might have some performance implications. https://github.com/hyperium/hyper/issues/2181"
     )]
     no_bytes_monitor: bool,
+
+    #[arg(
+        long,
+        help = "sets the Access-Control-Allow-Origin that will be answered in each request"
+    )]
+    access_control_allow_origin: Option<String>,
+
+    #[arg(
+        long,
+        help = "sets the Access-Control-Allow-Methods that will be answered in each request"
+    )]
+    access_control_allow_methods: Option<String>,
+
+    #[arg(
+        long,
+        help = "sets the Access-Control-Allow-Headers that will be answered in each request"
+    )]
+    access_control_allow_headers: Option<String>,
 }
 
 struct Config {
@@ -98,13 +116,23 @@ impl OnBytesTransferred for BytesTransferredLogger {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Args = Args::parse();
-    let disable_monitoring = args.no_bytes_monitor;
-    let config: Config = args.try_into()?;
     tracing_subscriber::fmt().json().init();
+
+    let args: Args = Args::parse();
+    let config: Config = args.clone().try_into()?;
     let mut server = SignwayServer::from_env(config);
-    if !disable_monitoring {
+
+    if !args.no_bytes_monitor {
         server = server.on_bytes_transferred(BytesTransferredLogger {});
+    }
+    if let Some(value) = args.access_control_allow_headers {
+        server = server.access_control_allow_headers(&value)?;
+    }
+    if let Some(value) = args.access_control_allow_methods {
+        server = server.access_control_allow_methods(&value)?;
+    }
+    if let Some(value) = args.access_control_allow_origin {
+        server = server.access_control_allow_origin(&value)?;
     }
 
     tokio::select! {
