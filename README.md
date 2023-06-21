@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-    A gateway that proxies signed requests to other APIs. Check the <a href="https://gabotechs.github.io/signway/">docs</a> for more info.
+    A gateway that proxies signed requests to other APIs. Check the <a href="https://gabotechs.github.io/signway/">docs</a> for more info. If you are looking for the managed version checkout this link https://www.signway.io.
 </p>
 
 <p align="center">
