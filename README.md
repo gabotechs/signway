@@ -202,7 +202,7 @@ signature, but it is not included in the URL.
 
 Signway, who knows which `secret` is associated to which `id`, will take the request and
 recalculate its signature. If the declared signature and the calculated one match, and the request has not expired,
-it will redirect the request to the specified third party API, adding any preconfigured headers for that `id`, like API tokens.
+it will proxy the request to the specified third party API, adding any preconfigured headers for that `id`, like API tokens.
 
 
 # Usage
