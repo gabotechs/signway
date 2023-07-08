@@ -14,7 +14,11 @@
 </p>
 
 <p align="center">
-    A gateway that proxies signed requests to other APIs. Check the <a href="https://gabotechs.github.io/signway/">docs</a> for more info. If you are looking for the managed version checkout this link https://www.signway.io.
+    Signway is a proxy server that addresses the problem of re-streaming API responses from backend to frontend by allowing the frontend to directly request the API using a pre-signed URL created by Signway. This URL is short-lived, and once it passes verification for authenticity and expiry, Signway will proxy the request to the API and add the necessary authentication headers.
+</p>
+
+<p align="center">
+    Check the <a href="https://gabotechs.github.io/signway/">docs</a> for more info. If you are looking for the managed version checkout <a href="https://www.signway.io">this link</a>.
 </p>
 
 <p align="center">
