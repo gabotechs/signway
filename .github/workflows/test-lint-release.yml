@@ -63,12 +63,15 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: coverage.lcov
-  Release:
+
+  release:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs:
       - test
       - clippy
+    outputs:
+      tag: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -112,19 +115,53 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  Docker:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs:
+      - release
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            target: x86_64-unknown-linux-gnu
+          - platform: linux/arm64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-2023-04-20 # Fixed so that it can be cached
+          profile: minimal
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ matrix.target }}
+
+      - uses: korandoru/setup-zig@v1
+        with:
+          zig-version: 0.10.0
+
+      - name: Install ZigBuild
+        run: cargo install cargo-zigbuild
+
+      - name: Compile using Zig linker
+        run: cargo zigbuild --target ${{ matrix.target }} --release
+
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
           username: gabotechs
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - uses: docker/setup-qemu-action@v2
-      - uses: docker/setup-buildx-action@v1
-
-      - uses: docker/build-push-action@v2
+      - uses: docker/build-push-action@v4
         with:
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
-          tags: gabotechs/signway:${{ steps.tag.outputs.version }},gabotechs/signway:latest
+          platforms: ${{ matrix.platform }}
+          build-args: TARGET=${{ matrix.target }}
+          tags: gabotechs/signway:${{ needs.release.outputs.tag }},gabotechs/signway:latest
