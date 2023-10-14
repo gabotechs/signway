@@ -146,31 +146,25 @@ impl<T: SecretGetter> SignwayServer<T> {
         res
     }
 
-    pub async fn start(self) -> Result<()> {
+    pub async fn start(&'static self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
 
-        let arc_self = Arc::new(self);
         let listener = TcpListener::bind(in_addr).await?;
 
         info!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
 
-            let arc_self = arc_self.clone();
-
-            let service = service_fn(move |req| {
-                let arc_self = arc_self.clone();
-                async move {
-                    let res = if req.method() == Method::OPTIONS {
-                        Ok(ok())
-                    } else {
-                        arc_self.route_gateway(req).await
-                    };
-                    if let Ok(res) = res {
-                        Ok(arc_self.with_cors_headers(res))
-                    } else {
-                        res
-                    }
+            let service = service_fn(move |req| async move {
+                let res = if req.method() == Method::OPTIONS {
+                    Ok(ok())
+                } else {
+                    self.route_gateway(req).await
+                };
+                if let Ok(res) = res {
+                    Ok(self.with_cors_headers(res))
+                } else {
+                    res
                 }
             });
 
@@ -189,10 +183,10 @@ impl<T: SecretGetter> SignwayServer<T> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::{AtomicU16, Ordering};
 
     use hyper::http::HeaderValue;
     use hyper::StatusCode;
+    use lazy_static::lazy_static;
     use reqwest::header::HeaderMap;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
@@ -202,6 +196,16 @@ mod tests {
     use crate::signing::{ElementsToSign, UrlSigner};
 
     use super::*;
+
+    lazy_static! {
+        static ref SERVER: SignwayServer<InMemorySecretGetter> =
+            server_for_testing([("foo", "foo-secret")], 3000);
+    }
+
+    async fn init() -> &'static str {
+        tokio::spawn(SERVER.start());
+        "http://localhost:3000"
+    }
 
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
@@ -234,14 +238,9 @@ mod tests {
         }
     }
 
-    static PORT: AtomicU16 = AtomicU16::new(3000);
-
     #[tokio::test]
     async fn simple_get_works() {
-        let port = PORT.fetch_add(1, Ordering::SeqCst);
-        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
-        let host = &format!("http://localhost:{port}");
-
+        let host = init().await;
         let signer = UrlSigner::new("foo", "foo-secret");
         let signed_url = signer.get_signed_url(host, &base_request()).unwrap();
 
@@ -260,10 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn options_returns_cors() {
-        let port = PORT.fetch_add(1, Ordering::SeqCst);
-        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
-        let host = &format!("http://localhost:{port}");
-
+        let host = init().await;
         let response = reqwest::Client::new()
             .request(Method::OPTIONS, host)
             .send()
@@ -292,15 +288,12 @@ mod tests {
                 .get("access-control-allow-methods")
                 .unwrap_or(&HeaderValue::from_str("NONE").unwrap()),
             "*"
-        )
+        );
     }
 
     #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
-        let port = PORT.fetch_add(1, Ordering::SeqCst);
-        tokio::spawn(server_for_testing([("foo", "foo-secret")], port).start());
-        let host = &format!("http://localhost:{port}");
-
+        let host = init().await;
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
         let signed_url = bad_signer.get_signed_url(host, &base_request()).unwrap();
