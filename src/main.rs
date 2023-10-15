@@ -1,9 +1,10 @@
 use anyhow::anyhow;
-use lazy_static::lazy_static;
 use std::str::FromStr;
+
 use async_trait::async_trait;
 use clap::Parser;
 use tracing::info;
+
 use signway_server::hyper::header::HeaderName;
 use signway_server::hyper::{Body, Response, StatusCode};
 use signway_server::{
@@ -113,7 +114,10 @@ impl OnBytesTransferred for BytesTransferredLogger {
     }
 }
 
-fn make_server() -> anyhow::Result<SignwayServer<Config>> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt().json().init();
+
     let args: Args = Args::parse();
     let config: Config = args.clone().try_into()?;
     let mut server = SignwayServer::from_env(config);
@@ -130,24 +134,9 @@ fn make_server() -> anyhow::Result<SignwayServer<Config>> {
     if let Some(value) = args.access_control_allow_origin {
         server = server.access_control_allow_origin(&value)?;
     }
-    Ok(server)
-}
-
-lazy_static! {
-    static ref SERVER: anyhow::Result<SignwayServer<Config>> = make_server();
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().json().init();
-
-    let server = match SERVER.as_ref() {
-        Ok(server) => server,
-        Err(err) => return Err(anyhow::anyhow!(err))
-    };
 
     tokio::select! {
-        result = server.start() => {
+        result = server.start_leak() => {
             result
         }
         _ = tokio::signal::ctrl_c() => {

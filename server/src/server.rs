@@ -80,6 +80,7 @@ impl<T: SecretGetter> SignwayServer<T> {
             client,
         }
     }
+
     pub fn from_port(secret_getter: T, port: u16) -> SignwayServer<T> {
         let https = HttpsConnector::new();
         let client = hyper::Client::builder().build::<_, Body>(https);
@@ -146,6 +147,35 @@ impl<T: SecretGetter> SignwayServer<T> {
         res
     }
 
+    async fn service_fn(&self, req: Request<Body>) -> Result<Response<Body>> {
+        let res = if req.method() == Method::OPTIONS {
+            Ok(ok())
+        } else {
+            self.route_gateway(req).await
+        };
+        if let Ok(res) = res {
+            Ok(self.with_cors_headers(res))
+        } else {
+            Ok(res?)
+        }
+    }
+
+    /// Starts the server using Box::leak so that its lifetime becomes 'static. This way, the
+    /// memmory occupied by the the `SignwayServer` instance will never be freed and will live
+    /// forever in the program, even after this function has finished. This avoids the
+    /// runtime costs of maintaining a reference count to the `SignwayServer` instance to
+    /// share across requests, at the cost of never freeing the memory occupied by the instance.
+    /// Usually, an application that spawns a server will expect the server to live forever,
+    /// so it is a fair assumption to keep its memory forever.
+    pub async fn start_leak(self) -> Result<()> {
+        let self_leak = Box::leak(Box::new(self));
+        self_leak.start().await
+    }
+
+    /// Starts the server expecting it to be 'static, meaning that it is going to live forever.
+    /// Applications might choose to store the server in a static variable by themselves, so that
+    /// they can just call this method, which does not have the performance implications of
+    /// maintaining reference counting for the server instance per request.
     pub async fn start(&'static self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
 
@@ -155,17 +185,38 @@ impl<T: SecretGetter> SignwayServer<T> {
         loop {
             let (stream, _) = listener.accept().await?;
 
-            let service = service_fn(move |req| async move {
-                let res = if req.method() == Method::OPTIONS {
-                    Ok(ok())
-                } else {
-                    self.route_gateway(req).await
-                };
-                if let Ok(res) = res {
-                    Ok(self.with_cors_headers(res))
-                } else {
-                    res
+            let service = service_fn(|req| self.service_fn(req));
+
+            tokio::spawn(async move {
+                if let Err(err) = hyper::server::conn::Http::new()
+                    .serve_connection(stream, service)
+                    .await
+                {
+                    error!("Failed to serve the connection: {:?}", err);
                 }
+            });
+        }
+    }
+
+    /// Starts the server by maintaining a reference count in each request handle. This will grant
+    /// that the memmory occupied by the server will be freed after this function has finished and
+    /// all the requests have already been handled. Use this function if your application will
+    /// continue running after stopping the server. Calling this function has a small runtime cost
+    /// for maintaining the reference counting.
+    pub async fn start_arc(self) -> Result<()> {
+        let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
+
+        let listener = TcpListener::bind(in_addr).await?;
+
+        let arc_self = Arc::new(self);
+        info!("Server running in {}", in_addr);
+        loop {
+            let (stream, _) = listener.accept().await?;
+
+            let arc_self = arc_self.clone();
+            let service = service_fn(move |req| {
+                let arc_self = arc_self.clone();
+                async move { arc_self.service_fn(req).await }
             });
 
             tokio::spawn(async move {
@@ -186,7 +237,6 @@ mod tests {
 
     use hyper::http::HeaderValue;
     use hyper::StatusCode;
-    use lazy_static::lazy_static;
     use reqwest::header::HeaderMap;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
@@ -196,16 +246,6 @@ mod tests {
     use crate::signing::{ElementsToSign, UrlSigner};
 
     use super::*;
-
-    lazy_static! {
-        static ref SERVER: SignwayServer<InMemorySecretGetter> =
-            server_for_testing([("foo", "foo-secret")], 3000);
-    }
-
-    async fn init() -> &'static str {
-        tokio::spawn(SERVER.start());
-        "http://localhost:3000"
-    }
 
     fn server_for_testing<const N: usize>(
         config: [(&str, &str); N],
@@ -240,9 +280,10 @@ mod tests {
 
     #[tokio::test]
     async fn simple_get_works() {
-        let host = init().await;
+        let server = server_for_testing([("foo", "foo-secret")], 3000);
+        tokio::spawn(server.start_leak());
         let signer = UrlSigner::new("foo", "foo-secret");
-        let signed_url = signer.get_signed_url(host, &base_request()).unwrap();
+        let signed_url = signer.get_signed_url("http://localhost:3000", &base_request()).unwrap();
 
         let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 
@@ -259,9 +300,10 @@ mod tests {
 
     #[tokio::test]
     async fn options_returns_cors() {
-        let host = init().await;
+        let server = server_for_testing([("foo", "foo-secret")], 3001);
+        tokio::spawn(server.start_arc());
         let response = reqwest::Client::new()
-            .request(Method::OPTIONS, host)
+            .request(Method::OPTIONS, "http://localhost:3001")
             .send()
             .await
             .unwrap();
@@ -293,10 +335,11 @@ mod tests {
 
     #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
-        let host = init().await;
+        let server = server_for_testing([("foo", "foo-secret")], 3002);
+        tokio::spawn(server.start_arc());
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
-        let signed_url = bad_signer.get_signed_url(host, &base_request()).unwrap();
+        let signed_url = bad_signer.get_signed_url("http://localhost:3002", &base_request()).unwrap();
 
         let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 

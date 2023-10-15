@@ -21,9 +21,9 @@ hmac = "^0.12.1"
 sha2 = "^0.10.6"
 time = { version = "^0.3.6", features = ["formatting", "macros", "parsing"] }
 percent-encoding = "^2.2.0"
-lazy_static = "^1.4.0"
 tracing = "^0.1.37"
 async-trait = "^0.1.68"
 
 [dev-dependencies]
+lazy_static = "^1.4.0"
 reqwest = { version = "^0.11.18", features = ["json"] }
