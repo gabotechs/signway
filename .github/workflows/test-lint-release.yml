@@ -90,6 +90,11 @@ jobs:
       - name: Install bump tool
         run: cargo install cargo-workspaces cargo-zigbuild
 
+      - name: Bump versions
+        run: |
+          SEM_VER=$(.github/semver.sh)
+          cargo workspaces version $SEM_VER -a -y --force '*' --no-git-commit
+
       - name: Compile for x86_64-unknown-linux-gnu
         run: |
           rustup target add x86_64-unknown-linux-gnu
@@ -107,9 +112,6 @@ jobs:
       - name: Tag
         id: tag
         run: |
-          SEM_VER=$(.github/semver.sh)
-          cargo workspaces version $SEM_VER -a -y --force '*' --no-git-commit
-          
           version=`grep '^version = ' Cargo.toml | sed 's/version = //; s/\"//; s/\"//'`
           git config user.name github-actions
           git config user.email github-actions@github.com
