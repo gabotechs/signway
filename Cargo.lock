@@ -948,7 +948,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "lazy_static",
  "signway-server",
  "tokio",
  "tracing",
