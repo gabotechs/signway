@@ -124,7 +124,7 @@ EOF
 Make a request to the generated signed URL, as if it was OpenAI:
 
 ```bash
-curl $(python sign.py) \
+curl $(python3 sign.py) \
 -H "Content-Type: application/json" \
 -d '{
   "model": "text-davinci-003",
