@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-    Signway is a proxy server that addresses the problem of re-streaming API responses from backend to frontend by allowing the frontend to directly request the API using a pre-signed URL created by Signway. This URL is short-lived, and once it passes verification for authenticity and expiry, Signway will proxy the request to the API and add the necessary authentication headers.
+    Signway is a proxy server that addresses the problem of re-streaming third-party API responses from backend to frontend by allowing the frontend to "directly" request these APIs. Your backend code creates syncronously a short-lived signed URL that points to the third-party API, and your frontend code issues an HTTP query to that URL, which will query the third-party API safely proxying the request through Signway.
 </p>
 
 <p align="center">
