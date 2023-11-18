@@ -87,8 +87,8 @@ impl UnverifiedSignedRequest {
             x_signed_headers.ok_or_else(|| anyhow!("missing {X_SIGNED_HEADERS}"))?;
 
         let mut headers = HeaderMap::new();
-        // TODO: where does this come from
-        for header in signed_headers.split(';') {
+        const HEADER_SPLIT: char = ';';
+        for header in signed_headers.split(HEADER_SPLIT) {
             if header.is_empty() {
                 continue;
             }
@@ -108,7 +108,8 @@ impl UnverifiedSignedRequest {
         };
 
         let credential = x_credential.ok_or_else(|| anyhow!("missing {X_CREDENTIAL}"))?;
-        let credential_parts = credential.split('/'); // TODO: where does this come from
+        const CREDENTIAL_SPLIT: char = '/';
+        let credential_parts = credential.split(CREDENTIAL_SPLIT);
         let id = credential_parts
             .into_iter()
             .next()
