@@ -5,14 +5,12 @@ use std::u16;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use hyper::client::HttpConnector;
 use hyper::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
 };
-use hyper::http::HeaderValue;
-use hyper::service::service_fn;
-use hyper::{Body, Method, Request, Response, StatusCode};
-use hyper_tls::HttpsConnector;
+use hyper::http::{request, response, HeaderValue};
+use hyper::Response;
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
@@ -20,21 +18,13 @@ use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
 use crate::{BytesTransferredInfo, OnBytesTransferred};
 
-fn ok() -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::empty())
-        .unwrap()
-}
-
-pub struct SignwayServer<T: SecretGetter + 'static> {
+pub struct SignwayServer {
     pub port: u16,
-    pub secret_getter: T,
+    pub secret_getter: Box<dyn SecretGetter>,
     pub on_request: Box<dyn OnRequest>,
     pub on_success: Box<dyn OnSuccess>,
     pub on_bytes_transferred: Arc<dyn OnBytesTransferred>,
     pub(crate) monitor_bytes: bool,
-    pub(crate) client: hyper::Client<HttpsConnector<HttpConnector>, Body>,
     pub(crate) access_control_allow_origin: HeaderValue,
     pub(crate) access_control_allow_methods: HeaderValue,
     pub(crate) access_control_allow_headers: HeaderValue,
@@ -44,14 +34,14 @@ pub(crate) struct NoneCallback;
 
 #[async_trait]
 impl OnRequest for NoneCallback {
-    async fn call(&self, _id: &str, _req: &Request<Body>) -> CallbackResult {
+    async fn call(&self, _id: &str, _req: &request::Parts) -> CallbackResult {
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
 impl OnSuccess for NoneCallback {
-    async fn call(&self, _id: &str, _res: &Response<Body>) -> CallbackResult {
+    async fn call(&self, _id: &str, _res: &response::Parts) -> CallbackResult {
         CallbackResult::Empty
     }
 }
@@ -61,15 +51,12 @@ impl OnBytesTransferred for NoneCallback {
     async fn call(&self, _bytes: usize, _info: BytesTransferredInfo) {}
 }
 
-impl<T: SecretGetter> SignwayServer<T> {
-    pub fn from_env(secret_getter: T) -> SignwayServer<T> {
-        let https = HttpsConnector::new();
-        let client = hyper::Client::builder().build::<_, Body>(https);
-
+impl SignwayServer {
+    pub fn from_env(secret_getter: impl SecretGetter) -> SignwayServer {
         SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
-            secret_getter,
+            secret_getter: Box::new(secret_getter),
             on_request: Box::new(NoneCallback {}),
             on_success: Box::new(NoneCallback {}),
             on_bytes_transferred: Arc::new(NoneCallback {}),
@@ -77,17 +64,13 @@ impl<T: SecretGetter> SignwayServer<T> {
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
-            client,
         }
     }
 
-    pub fn from_port(secret_getter: T, port: u16) -> SignwayServer<T> {
-        let https = HttpsConnector::new();
-        let client = hyper::Client::builder().build::<_, Body>(https);
-
+    pub fn from_port(secret_getter: impl SecretGetter, port: u16) -> SignwayServer {
         SignwayServer {
             port,
-            secret_getter,
+            secret_getter: Box::new(secret_getter),
             on_request: Box::new(NoneCallback {}),
             on_success: Box::new(NoneCallback {}),
             on_bytes_transferred: Arc::new(NoneCallback {}),
@@ -95,7 +78,6 @@ impl<T: SecretGetter> SignwayServer<T> {
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
-            client,
         }
     }
 
@@ -147,21 +129,8 @@ impl<T: SecretGetter> SignwayServer<T> {
         res
     }
 
-    async fn service_fn(&self, req: Request<Body>) -> Result<Response<Body>> {
-        let res = if req.method() == Method::OPTIONS {
-            Ok(ok())
-        } else {
-            self.route_gateway(req).await
-        };
-        if let Ok(res) = res {
-            Ok(self.with_cors_headers(res))
-        } else {
-            Ok(res?)
-        }
-    }
-
     /// Starts the server using Box::leak so that its lifetime becomes 'static. This way, the
-    /// memmory occupied by the the `SignwayServer` instance will never be freed and will live
+    /// memory occupied by the the `SignwayServer` instance will never be freed and will live
     /// forever in the program, even after this function has finished. This avoids the
     /// runtime costs of maintaining a reference count to the `SignwayServer` instance to
     /// share across requests, at the cost of never freeing the memory occupied by the instance.
@@ -184,12 +153,11 @@ impl<T: SecretGetter> SignwayServer<T> {
         info!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
-
-            let service = service_fn(|req| self.service_fn(req));
+            let io = TokioIo::new(stream);
 
             tokio::spawn(async move {
-                if let Err(err) = hyper::server::conn::Http::new()
-                    .serve_connection(stream, service)
+                if let Err(err) = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, self)
                     .await
                 {
                     error!("Failed to serve the connection: {:?}", err);
@@ -199,7 +167,7 @@ impl<T: SecretGetter> SignwayServer<T> {
     }
 
     /// Starts the server by maintaining a reference count in each request handle. This will grant
-    /// that the memmory occupied by the server will be freed after this function has finished and
+    /// that the memory occupied by the server will be freed after this function has finished and
     /// all the requests have already been handled. Use this function if your application will
     /// continue running after stopping the server. Calling this function has a small runtime cost
     /// for maintaining the reference counting.
@@ -212,16 +180,13 @@ impl<T: SecretGetter> SignwayServer<T> {
         info!("Server running in {}", in_addr);
         loop {
             let (stream, _) = listener.accept().await?;
+            let io = TokioIo::new(stream);
 
             let arc_self = arc_self.clone();
-            let service = service_fn(move |req| {
-                let arc_self = arc_self.clone();
-                async move { arc_self.service_fn(req).await }
-            });
 
             tokio::spawn(async move {
-                if let Err(err) = hyper::server::conn::Http::new()
-                    .serve_connection(stream, service)
+                if let Err(err) = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, arc_self.as_ref())
                     .await
                 {
                     error!("Failed to serve the connection: {:?}", err);
@@ -235,22 +200,18 @@ impl<T: SecretGetter> SignwayServer<T> {
 mod tests {
     use std::collections::HashMap;
 
-    use hyper::http::HeaderValue;
-    use hyper::StatusCode;
-    use reqwest::header::HeaderMap;
+    use hyper::HeaderMap;
+    use reqwest::header::HeaderValue;
+    use reqwest::{Method, StatusCode};
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
     use crate::_test_tools::tests::InMemorySecretGetter;
     use crate::secret_getter::SecretGetterResult;
     use crate::signing::{ElementsToSign, UrlSigner};
+    use crate::SignwayServer;
 
-    use super::*;
-
-    fn server_for_testing<const N: usize>(
-        config: [(&str, &str); N],
-        port: u16,
-    ) -> SignwayServer<InMemorySecretGetter> {
+    fn server_for_testing<const N: usize>(config: [(&str, &str); N], port: u16) -> SignwayServer {
         SignwayServer::from_port(
             InMemorySecretGetter(HashMap::from(config.map(|e| {
                 (
@@ -283,7 +244,9 @@ mod tests {
         let server = server_for_testing([("foo", "foo-secret")], 3000);
         tokio::spawn(server.start_leak());
         let signer = UrlSigner::new("foo", "foo-secret");
-        let signed_url = signer.get_signed_url("http://localhost:3000", &base_request()).unwrap();
+        let signed_url = signer
+            .get_signed_url("http://localhost:3000", &base_request())
+            .unwrap();
 
         let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 
@@ -339,7 +302,9 @@ mod tests {
         tokio::spawn(server.start_arc());
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
-        let signed_url = bad_signer.get_signed_url("http://localhost:3002", &base_request()).unwrap();
+        let signed_url = bad_signer
+            .get_signed_url("http://localhost:3002", &base_request())
+            .unwrap();
 
         let response = reqwest::Client::new().get(signed_url).send().await.unwrap();
 

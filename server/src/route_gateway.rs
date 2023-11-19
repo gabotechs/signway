@@ -1,171 +1,161 @@
-use std::fmt::Display;
+use std::future::Future;
+use std::pin::Pin;
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use hyper::body::{Body, HttpBody};
-use hyper::{Request, Response, StatusCode, Uri};
-use tracing::{error, info};
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Body, Incoming};
+use hyper::client::conn::http1;
+use hyper::http::{request, response};
+use hyper::service::Service;
+use hyper::{Method, Request, Response, Uri};
+use hyper_util::rt::TokioIo;
+use tokio::net::TcpStream;
+use tracing::{info, warn};
 
-use crate::body::{body_to_string, string_to_body};
+use crate::body::body_to_string;
 use crate::gateway_callbacks::CallbackResult;
-use crate::secret_getter::SecretGetter;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
+use crate::signway_response::{
+    bad_gateway, bad_request, from_full, from_incoming, internal_server, ok, wrap_full,
+    SignwayResponse,
+};
 use crate::{BytesTransferredInfo, BytesTransferredKind, GetSecretResponse};
 
-fn bad_request(e: impl Display) -> Response<Body> {
-    info!("Answering bad request: {e}");
-    Response::builder()
-        .status(StatusCode::BAD_REQUEST)
-        .body(Body::empty())
-        .unwrap()
+fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
+    let content_length = req
+        .headers
+        .get("content-length")
+        .ok_or_else(|| anyhow!("Content-Length header not present"))?;
+    Ok(usize::from_str(content_length.to_str()?)?)
 }
 
-fn internal_server(e: impl Display) -> Response<Body> {
-    error!("Answering internal server error: {e}");
-    Response::builder()
-        .status(StatusCode::INTERNAL_SERVER_ERROR)
-        .body(Body::empty())
-        .unwrap()
-}
+// impl Service<Request<Incoming>> for &SignwayServer {
+//     type Response = Response<SignwayResponse>;
+//     type Error = hyper::Error;
+//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-fn bad_gateway(e: impl Display) -> Response<Body> {
-    let err = format!("{e}");
-    error!("Answering bad gateway: {err}");
-    Response::builder()
-        .status(StatusCode::BAD_GATEWAY)
-        .body(string_to_body(&err))
-        .unwrap()
-}
+//     fn call(&self, req: Request<Incoming>) -> Self::Future {
+//         SignwayServer::call(self, req)
+//     }
+// }
 
-impl<T: SecretGetter> SignwayServer<T> {
-    fn monitor_body(&self, mut body: Body, info: BytesTransferredInfo) -> Body {
-        let (mut sender, new_body) = Body::channel();
+impl<B: Body> Service<Request<B>> for SignwayServer {
+    type Response = Response<SignwayResponse>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-        let cb = self.on_bytes_transferred.clone();
-
-        let f = || async move {
-            let mut count = 0;
-            while let Some(chunk) = body.data().await {
-                if let Ok(data) = chunk {
-                    count += data.len();
-                    if let Err(_err) = sender.send_data(data).await {
-                        return;
-                    }
-                } else {
-                    return sender.abort();
-                }
+    fn call(&self, req: Request<B>) -> Self::Future {
+        Box::pin(async {
+            if req.method() == Method::OPTIONS {
+                return ok();
             }
-            cb.call(count, info).await;
-        };
 
-        tokio::spawn(f());
-        new_body
-    }
-
-    fn parse_content_length<B>(req: &Request<B>) -> anyhow::Result<usize> {
-        let content_length = req
-            .headers()
-            .get("content-length")
-            .ok_or_else(|| anyhow!("Content-Length header not present"))?;
-        Ok(usize::from_str(content_length.to_str()?)?)
-    }
-
-    pub(crate) async fn route_gateway(
-        &self,
-        mut req: Request<Body>,
-    ) -> hyper::Result<Response<Body>> {
-        let mut unverified_req = match UnverifiedSignedRequest::from_request(&req) {
-            Ok(a) => a,
-            Err(e) => return Ok(bad_request(e)),
-        };
-        let id = unverified_req.info.id;
-
-        if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &req).await {
-            return Ok(res);
-        };
-
-        let secret = match self.secret_getter.get_secret(&id).await {
-            Ok(res) => match res {
-                GetSecretResponse::Secret(secret) => secret,
-                GetSecretResponse::EarlyResponse(early_res) => return Ok(early_res),
-            },
-            Err(e) => return Ok(internal_server(e)),
-        };
-
-        let signer = UrlSigner::new(&id, &secret.secret);
-
-        if unverified_req.info.body_is_pending {
-            let content_length = match Self::parse_content_length(&req) {
+            let mut unverified_req = match UnverifiedSignedRequest::from_request(&req) {
                 Ok(a) => a,
-                Err(e) => return Ok(bad_request(e)),
+                Err(e) => return bad_request(e),
             };
-            let (parts, body) = req.into_parts();
-            let body = match body_to_string(body, content_length).await {
+            let id = unverified_req.info.id;
+
+            let (mut parts, body) = req.into_parts();
+
+            let mut sw_body = from_incoming(body);
+
+            if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &parts).await {
+                return Ok(wrap_full(res));
+            };
+
+            let secret = match self.secret_getter.get_secret(&id).await {
+                Ok(res) => match res {
+                    GetSecretResponse::Secret(secret) => secret,
+                    GetSecretResponse::EarlyResponse(early_res) => return Ok(wrap_full(early_res)),
+                },
+                Err(e) => return internal_server(e),
+            };
+
+            let signer = UrlSigner::new(&id, &secret.secret);
+
+            if unverified_req.info.body_is_pending {
+                let content_length = match parse_content_length(&parts) {
+                    Ok(a) => a,
+                    Err(e) => return bad_request(e),
+                };
+                let body = match body_to_string::<SignwayResponse>(sw_body, content_length).await {
+                    Ok(a) => a,
+                    Err(e) => return bad_request(e),
+                };
+                unverified_req.elements.body = Some(body.clone());
+                sw_body = from_full(body.into());
+            }
+
+            let Some(host) = unverified_req.elements.proxy_url.host() else {
+                return bad_request("Invalid host in proxy url");
+            };
+            let host = host.to_string();
+
+            let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
                 Ok(a) => a,
-                Err(e) => return Ok(bad_request(e)),
+                Err(e) => return bad_request(e),
             };
-            req = Request::from_parts(parts, string_to_body(&body));
-            unverified_req.elements.body = Some(body);
-        }
+            parts.uri = proxy_uri;
+            parts.headers.insert("host", host.parse().unwrap());
+            parts.headers.extend(secret.headers_extension);
 
-        let Some(host) = unverified_req.elements.proxy_url.host() else {
-            return Ok(bad_request("Invalid host in proxy url"))
-        };
-        let host = host.to_string();
+            let declared_signature = &unverified_req.info.signature;
+            let actual_signature = match signer.get_signature(&unverified_req.elements) {
+                Ok(a) => a,
+                Err(e) => return internal_server(e),
+            };
 
-        let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
-            Ok(a) => a,
-            Err(e) => return Ok(bad_request(e)),
-        };
-        *req.uri_mut() = proxy_uri;
-        req.headers_mut().insert("host", host.parse().unwrap());
-        req.headers_mut().extend(secret.headers_extension);
+            if declared_signature != &actual_signature {
+                return bad_request("signature mismatch");
+            }
 
-        let declared_signature = &unverified_req.info.signature;
-        let actual_signature = match signer.get_signature(&unverified_req.elements) {
-            Ok(a) => a,
-            Err(e) => return Ok(internal_server(e)),
-        };
+            info!("Id {id} provided a valid signature, redirecting the request...",);
+            let host = parts.uri.host().expect("uri has no host");
+            let port = parts.uri.port_u16().unwrap_or(80);
+            let addr = format!("{}:{}", host, port);
 
-        if declared_signature != &actual_signature {
-            return Ok(bad_request("signature mismatch"));
-        }
+            let stream = TcpStream::connect(addr).await.unwrap();
+            let io = TokioIo::new(stream);
 
-        info!("Id {id} provided a valid signature, redirecting the request...",);
+            let (mut sender, conn) = http1::Builder::new()
+                .preserve_header_case(true)
+                .title_case_headers(true)
+                .handshake(io)
+                .await?;
+            tokio::task::spawn(async move {
+                if let Err(err) = conn.await {
+                    warn!("Connection failed: {:?}", err);
+                }
+            });
+            let mut res = match sender
+                .send_request(Request::from_parts(parts, sw_body))
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => return bad_gateway(e),
+            };
+            let (res_parts, res_body) = res.into_parts();
+            if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res_parts).await
+            {
+                return Ok(wrap_full(res));
+            };
 
-        let info = BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: unverified_req.elements.proxy_url.clone(),
-            kind: BytesTransferredKind::Out,
-        };
+            let info = BytesTransferredInfo {
+                id: id.to_string(),
+                proxy_url: unverified_req.elements.proxy_url,
+                kind: BytesTransferredKind::Out,
+            };
 
-        if self.monitor_bytes {
-            let (parts, body) = req.into_parts();
-            let body = self.monitor_body(body, info);
-            req = Request::from_parts(parts, body);
-        }
-
-        let mut res = match self.client.request(req).await {
-            Ok(res) => res,
-            Err(e) => return Ok(bad_gateway(e)),
-        };
-        if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res).await {
-            return Ok(res);
-        };
-
-        let info = BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: unverified_req.elements.proxy_url,
-            kind: BytesTransferredKind::Out,
-        };
-
-        if self.monitor_bytes {
-            let (parts, body) = res.into_parts();
-            let body = self.monitor_body(body, info);
-            res = Response::from_parts(parts, body);
-        }
-        Ok(res)
+            if self.monitor_bytes {
+                Ok(Response::from_parts(res_parts, from_incoming(res_body)))
+            } else {
+                Ok(Response::from_parts(res_parts, from_incoming(res_body)))
+            }
+        })
     }
 }
 
@@ -173,7 +163,7 @@ impl<T: SecretGetter> SignwayServer<T> {
 mod tests {
     use std::collections::HashMap;
 
-    use hyper::HeaderMap;
+    use hyper::{HeaderMap, StatusCode};
 
     use crate::_test_tools::tests::{json_path, InMemorySecretGetter, ReqBuilder};
     use crate::secret_getter::SecretGetterResult;
@@ -181,7 +171,7 @@ mod tests {
 
     use super::*;
 
-    fn server() -> SignwayServer<InMemorySecretGetter> {
+    fn server() -> SignwayServer {
         SignwayServer::from_env(InMemorySecretGetter(HashMap::from([(
             "foo".to_string(),
             SecretGetterResult {
@@ -198,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn empty() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .sign("foo", "bar", "http://localhost:3000")
                     .unwrap()
@@ -223,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn with_query_params() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .sign("foo", "bar", "http://localhost:3000")
@@ -246,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn with_query_params_and_headers_and_body() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .header("Content-Length", "3")
@@ -272,7 +262,7 @@ mod tests {
     #[tokio::test]
     async fn with_query_params_and_headers_and_body_and_additional_header() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .header("Content-Length", "3")
@@ -303,7 +293,7 @@ mod tests {
     #[tokio::test]
     async fn with_query_params_and_headers_and_additional_body() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .header("Content-Length", "3")
@@ -329,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn with_invalid_query_param() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .sign("foo", "bar", "http://localhost:3000")
@@ -347,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn with_invalid_header() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .header("Content-Length", "3")
@@ -366,7 +356,7 @@ mod tests {
     #[tokio::test]
     async fn with_invalid_body() {
         let response = server()
-            .route_gateway(
+            .call(
                 ReqBuilder::default()
                     .query("page", "1")
                     .header("Content-Length", "3")

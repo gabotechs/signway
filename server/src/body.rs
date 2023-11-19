@@ -1,51 +1,40 @@
 use anyhow::{anyhow, Result};
-use hyper::body::HttpBody;
-use hyper::Body;
+use http_body_util::BodyExt;
+use hyper::body::Body;
 
-pub(crate) async fn body_to_string(mut body: Body, length: usize) -> Result<String> {
+pub(crate) async fn body_to_string<B: Body>(body: impl Into<B>, length: usize) -> Result<String> {
     let mut data = vec![];
-
-    let mut chunk = body.data().await;
-    while chunk.is_some() {
-        data.extend_from_slice(&chunk.unwrap()?);
+    for chunk in body.into().collect().await {
+        data.extend_from_slice(chunk.to_bytes().as_ref());
         if data.len() > length {
             return Err(anyhow!("too big"));
         }
-        chunk = body.data().await;
     }
-
     Ok(String::from_utf8(data)?)
-}
-
-pub(crate) fn string_to_body(str: &str) -> Body {
-    Body::from(str.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::Full;
+    use hyper::body::Bytes;
 
     #[tokio::test]
     async fn converts_from_string_to_body_and_back() {
-        let body = string_to_body("foo");
-
-        let result = body_to_string(body, 3).await.unwrap();
+        let result = body_to_string::<Full<Bytes>>("foo", 3).await.unwrap();
         assert_eq!(result, "foo")
     }
 
     #[tokio::test]
     async fn fails_to_read_long_body() {
-        let body = string_to_body("foo");
-
-        let err = body_to_string(body, 2).await.unwrap_err();
+        let err = body_to_string::<Full<Bytes>>("foo", 2).await.unwrap_err();
         assert_eq!(err.to_string(), "too big")
     }
 
     #[tokio::test]
     async fn works_with_a_really_long_body() {
         let len = 1e8 as usize;
-        let body = string_to_body(&"a".repeat(len));
 
-        body_to_string(body, len).await.unwrap();
+        body_to_string::<Full<Bytes>>("a", len).await.unwrap();
     }
 }

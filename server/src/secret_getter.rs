@@ -1,8 +1,9 @@
-use std::fmt::Display;
+use std::error::Error;
 
 use async_trait::async_trait;
+use http_body_util::Full;
+use hyper::body::Bytes;
 use hyper::http::Response;
-use hyper::Body;
 pub use hyper::HeaderMap;
 
 #[derive(Clone)]
@@ -12,13 +13,11 @@ pub struct SecretGetterResult {
 }
 
 pub enum GetSecretResponse {
-    EarlyResponse(Response<Body>),
+    EarlyResponse(Response<Full<Bytes>>),
     Secret(SecretGetterResult),
 }
 
 #[async_trait]
 pub trait SecretGetter: Send + Sync {
-    type Error: Display;
-
-    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error>;
+    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>>;
 }

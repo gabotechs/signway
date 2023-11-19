@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use clap::Parser;
 use tracing::info;
 
+use signway_server::http_body_util::Full;
 use signway_server::hyper::header::HeaderName;
-use signway_server::hyper::{Body, Response, StatusCode};
+use signway_server::hyper::{Response, StatusCode};
 use signway_server::{
     BytesTransferredInfo, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
     SecretGetterResult, SignwayServer,
@@ -93,7 +94,7 @@ impl SecretGetter for Config {
             return Ok(GetSecretResponse::EarlyResponse(
                 Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
-                    .body(Body::empty())?,
+                    .body(Full::empty())?,
             ));
         }
         Ok(GetSecretResponse::Secret(SecretGetterResult {

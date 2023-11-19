@@ -1,13 +1,14 @@
-use hyper::{Body, Request};
-
 #[cfg(test)]
 pub(crate) mod tests {
+    use hyper::Request;
     use std::collections::HashMap;
-    use std::convert::Infallible;
+    use std::error::Error;
     use std::str::FromStr;
 
     use anyhow::{anyhow, Context};
     use async_trait::async_trait;
+    use http_body_util::Full;
+    use hyper::body::{Bytes, Incoming};
     use hyper::header::HeaderName;
     use hyper::{HeaderMap, Response, StatusCode, Uri};
     use serde::de::DeserializeOwned;
@@ -16,8 +17,6 @@ pub(crate) mod tests {
 
     use crate::signing::{ElementsToSign, UrlSigner};
     use crate::{GetSecretResponse, SecretGetter, SecretGetterResult};
-
-    use super::*;
 
     #[derive(Clone, Debug)]
     pub(crate) struct ReqBuilder {
@@ -75,10 +74,10 @@ pub(crate) mod tests {
             }
         }
 
-        pub(crate) fn build(&self) -> anyhow::Result<Request<Body>> {
+        pub(crate) fn build(&self) -> anyhow::Result<Request<Incoming>> {
             let body = match &self.body {
-                Some(b) => Body::from(b.to_string()),
-                None => Body::empty(),
+                Some(b) => Full::from(b.to_string()),
+                None => Full::default(),
             };
 
             let mut builder = Request::builder();
@@ -156,18 +155,16 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl SecretGetter for InMemorySecretGetter {
-        type Error = Infallible;
-
-        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
+        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>> {
             let secret = match self.0.get(id).cloned() {
                 Some(a) => a,
                 None => {
                     return Ok(GetSecretResponse::EarlyResponse(
                         Response::builder()
                             .status(StatusCode::UNAUTHORIZED)
-                            .body(Body::empty())
+                            .body(Full::default())
                             .unwrap(),
-                    ))
+                    ));
                 }
             };
 

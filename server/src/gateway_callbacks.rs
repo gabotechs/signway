@@ -1,21 +1,25 @@
-use async_trait::async_trait;
-use hyper::{Body, Request, Response};
 use std::fmt::{Display, Formatter};
+
+use async_trait::async_trait;
+use http_body_util::Full;
+use hyper::body::Bytes;
+use hyper::http::{request, response};
+use hyper::Response;
 use url::Url;
 
 pub enum CallbackResult {
-    EarlyResponse(Response<Body>),
+    EarlyResponse(Response<Full<Bytes>>),
     Empty,
 }
 
 #[async_trait]
 pub trait OnRequest: Sync + Send {
-    async fn call(&self, id: &str, req: &Request<Body>) -> CallbackResult;
+    async fn call(&self, id: &str, req: &request::Parts) -> CallbackResult;
 }
 
 #[async_trait]
 pub trait OnSuccess: Sync + Send {
-    async fn call(&self, id: &str, res: &Response<Body>) -> CallbackResult;
+    async fn call(&self, id: &str, res: &response::Parts) -> CallbackResult;
 }
 
 #[derive(Debug, Clone)]
@@ -51,20 +55,27 @@ pub trait OnBytesTransferred: Sync + Send {
 
 #[cfg(test)]
 mod tests {
-    use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
-    use crate::body::body_to_string;
-    use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
-    use crate::{
-        BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
-    };
-    use async_trait::async_trait;
-    use hyper::body::HttpBody;
-    use hyper::{Body, Request, Response, StatusCode};
     use std::collections::HashMap;
+    use std::str::FromStr;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::SeqCst;
 
-    fn server() -> SignwayServer<InMemorySecretGetter> {
+    use async_trait::async_trait;
+    use http_body_util::Full;
+    use hyper::body::{Bytes, Incoming};
+    use hyper::http::{request, response};
+    use hyper::service::Service;
+    use hyper::{Request, StatusCode};
+
+    use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
+    use crate::body::body_to_string;
+    use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
+    use crate::signway_response::SignwayResponse;
+    use crate::{
+        BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
+    };
+
+    fn server() -> SignwayServer {
         SignwayServer::from_env(InMemorySecretGetter(HashMap::from([(
             "foo".to_string(),
             SecretGetterResult {
@@ -74,7 +85,7 @@ mod tests {
         )])))
     }
 
-    fn req() -> Request<Body> {
+    fn req() -> Request<Incoming> {
         ReqBuilder::default()
             .query("page", "1")
             .header("Content-Length", "3")
@@ -90,16 +101,18 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnRequest for SizeCollector<'a> {
-        async fn call(&self, _id: &str, req: &Request<Body>) -> CallbackResult {
-            self.0.fetch_add(req.size_hint().exact().unwrap(), SeqCst);
+        async fn call(&self, _id: &str, req: &request::Parts) -> CallbackResult {
+            let size: &str = req.headers.get("content-length").unwrap().to_str().unwrap();
+            self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
         }
     }
 
     #[async_trait]
     impl<'a> OnSuccess for SizeCollector<'a> {
-        async fn call(&self, _id: &str, res: &Response<Body>) -> CallbackResult {
-            self.0.fetch_add(res.size_hint().exact().unwrap(), SeqCst);
+        async fn call(&self, _id: &str, res: &response::Parts) -> CallbackResult {
+            let size: &str = res.headers.get("content-length").unwrap().to_str().unwrap();
+            self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
         }
     }
@@ -118,7 +131,7 @@ mod tests {
 
         let response = server()
             .on_request(size_collector)
-            .route_gateway(req())
+            .call(req())
             .await
             .unwrap();
 
@@ -133,7 +146,7 @@ mod tests {
 
         let response = server()
             .on_success(size_collector)
-            .route_gateway(req())
+            .call(req())
             .await
             .unwrap();
 
@@ -148,13 +161,15 @@ mod tests {
 
         let response = server()
             .on_bytes_transferred(size_collector)
-            .route_gateway(req())
+            .call(req())
             .await
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 3);
-        body_to_string(response.into_body(), 396).await.unwrap();
+        body_to_string::<SignwayResponse>(response.into_body(), 396)
+            .await
+            .unwrap();
         assert_eq!(COUNTER.load(SeqCst), 399);
     }
 }
