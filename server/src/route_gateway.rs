@@ -110,7 +110,7 @@ impl<T: SecretGetter> SignwayServer<T> {
         }
 
         let Some(host) = unverified_req.elements.proxy_url.host() else {
-            return Ok(bad_request("Invalid host in proxy url"))
+            return Ok(bad_request("Invalid host in proxy url"));
         };
         let host = host.to_string();
 
@@ -134,13 +134,13 @@ impl<T: SecretGetter> SignwayServer<T> {
 
         info!("Id {id} provided a valid signature, redirecting the request...",);
 
-        let info = BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: unverified_req.elements.proxy_url.clone(),
-            kind: BytesTransferredKind::Out,
-        };
-
         if self.monitor_bytes {
+            let info = BytesTransferredInfo {
+                id: id.to_string(),
+                proxy_url: unverified_req.elements.proxy_url.clone(),
+                kind: BytesTransferredKind::In,
+            };
+
             let (parts, body) = req.into_parts();
             let body = self.monitor_body(body, info);
             req = Request::from_parts(parts, body);
@@ -154,13 +154,13 @@ impl<T: SecretGetter> SignwayServer<T> {
             return Ok(res);
         };
 
-        let info = BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: unverified_req.elements.proxy_url,
-            kind: BytesTransferredKind::Out,
-        };
-
         if self.monitor_bytes {
+            let info = BytesTransferredInfo {
+                id: id.to_string(),
+                proxy_url: unverified_req.elements.proxy_url,
+                kind: BytesTransferredKind::Out,
+            };
+
             let (parts, body) = res.into_parts();
             let body = self.monitor_body(body, info);
             res = Response::from_parts(parts, body);
