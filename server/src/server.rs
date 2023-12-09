@@ -18,11 +18,12 @@ use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
 use crate::{BytesTransferredInfo, OnBytesTransferred};
 
+#[derive(Clone)]
 pub struct SignwayServer {
     pub port: u16,
-    pub secret_getter: Box<dyn SecretGetter>,
-    pub on_request: Box<dyn OnRequest>,
-    pub on_success: Box<dyn OnSuccess>,
+    pub secret_getter: Arc<dyn SecretGetter>,
+    pub on_request: Arc<dyn OnRequest>,
+    pub on_success: Arc<dyn OnSuccess>,
     pub on_bytes_transferred: Arc<dyn OnBytesTransferred>,
     pub(crate) monitor_bytes: bool,
     pub(crate) access_control_allow_origin: HeaderValue,
@@ -52,13 +53,13 @@ impl OnBytesTransferred for NoneCallback {
 }
 
 impl SignwayServer {
-    pub fn from_env(secret_getter: impl SecretGetter) -> SignwayServer {
+    pub fn from_env(secret_getter: impl SecretGetter + 'static) -> SignwayServer {
         SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
-            secret_getter: Box::new(secret_getter),
-            on_request: Box::new(NoneCallback {}),
-            on_success: Box::new(NoneCallback {}),
+            secret_getter: Arc::new(secret_getter),
+            on_request: Arc::new(NoneCallback {}),
+            on_success: Arc::new(NoneCallback {}),
             on_bytes_transferred: Arc::new(NoneCallback {}),
             monitor_bytes: false,
             access_control_allow_origin: HeaderValue::from_static("*"),
@@ -67,12 +68,12 @@ impl SignwayServer {
         }
     }
 
-    pub fn from_port(secret_getter: impl SecretGetter, port: u16) -> SignwayServer {
+    pub fn from_port(secret_getter: impl SecretGetter + 'static, port: u16) -> SignwayServer {
         SignwayServer {
             port,
-            secret_getter: Box::new(secret_getter),
-            on_request: Box::new(NoneCallback {}),
-            on_success: Box::new(NoneCallback {}),
+            secret_getter: Arc::new(secret_getter),
+            on_request: Arc::new(NoneCallback {}),
+            on_success: Arc::new(NoneCallback {}),
             on_bytes_transferred: Arc::new(NoneCallback {}),
             monitor_bytes: false,
             access_control_allow_origin: HeaderValue::from_static("*"),
@@ -82,12 +83,12 @@ impl SignwayServer {
     }
 
     pub fn on_success(mut self, callback: impl OnSuccess + 'static) -> Self {
-        self.on_success = Box::new(callback);
+        self.on_success = Arc::new(callback);
         self
     }
 
     pub fn on_request(mut self, callback: impl OnRequest + 'static) -> Self {
-        self.on_request = Box::new(callback);
+        self.on_request = Arc::new(callback);
         self
     }
 
@@ -129,22 +130,11 @@ impl SignwayServer {
         res
     }
 
-    /// Starts the server using Box::leak so that its lifetime becomes 'static. This way, the
-    /// memory occupied by the the `SignwayServer` instance will never be freed and will live
-    /// forever in the program, even after this function has finished. This avoids the
-    /// runtime costs of maintaining a reference count to the `SignwayServer` instance to
-    /// share across requests, at the cost of never freeing the memory occupied by the instance.
-    /// Usually, an application that spawns a server will expect the server to live forever,
-    /// so it is a fair assumption to keep its memory forever.
-    pub async fn start_leak(self) -> Result<()> {
-        let self_leak = Box::leak(Box::new(self));
-        self_leak.start().await
-    }
-
-    /// Starts the server expecting it to be 'static, meaning that it is going to live forever.
-    /// Applications might choose to store the server in a static variable by themselves, so that
-    /// they can just call this method, which does not have the performance implications of
-    /// maintaining reference counting for the server instance per request.
+    /// Starts the server by maintaining a reference count in each request handle. This will grant
+    /// that the memory occupied by the server will be freed after this function has finished and
+    /// all the requests have already been handled. Use this function if your application will
+    /// continue running after stopping the server. Calling this function has a small runtime cost
+    /// for maintaining the reference counting.
     pub async fn start(&'static self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
 
@@ -158,35 +148,6 @@ impl SignwayServer {
             tokio::spawn(async move {
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
                     .serve_connection(io, self)
-                    .await
-                {
-                    error!("Failed to serve the connection: {:?}", err);
-                }
-            });
-        }
-    }
-
-    /// Starts the server by maintaining a reference count in each request handle. This will grant
-    /// that the memory occupied by the server will be freed after this function has finished and
-    /// all the requests have already been handled. Use this function if your application will
-    /// continue running after stopping the server. Calling this function has a small runtime cost
-    /// for maintaining the reference counting.
-    pub async fn start_arc(self) -> Result<()> {
-        let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
-
-        let listener = TcpListener::bind(in_addr).await?;
-
-        let arc_self = Arc::new(self);
-        info!("Server running in {}", in_addr);
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let io = TokioIo::new(stream);
-
-            let arc_self = arc_self.clone();
-
-            tokio::spawn(async move {
-                if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, arc_self.as_ref())
                     .await
                 {
                     error!("Failed to serve the connection: {:?}", err);
@@ -242,7 +203,7 @@ mod tests {
     #[tokio::test]
     async fn simple_get_works() {
         let server = server_for_testing([("foo", "foo-secret")], 3000);
-        tokio::spawn(server.start_leak());
+        tokio::spawn(server.start());
         let signer = UrlSigner::new("foo", "foo-secret");
         let signed_url = signer
             .get_signed_url("http://localhost:3000", &base_request())
@@ -264,7 +225,7 @@ mod tests {
     #[tokio::test]
     async fn options_returns_cors() {
         let server = server_for_testing([("foo", "foo-secret")], 3001);
-        tokio::spawn(server.start_arc());
+        tokio::spawn(server.start());
         let response = reqwest::Client::new()
             .request(Method::OPTIONS, "http://localhost:3001")
             .send()
@@ -299,7 +260,7 @@ mod tests {
     #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
         let server = server_for_testing([("foo", "foo-secret")], 3002);
-        tokio::spawn(server.start_arc());
+        tokio::spawn(server.start());
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
         let signed_url = bad_signer

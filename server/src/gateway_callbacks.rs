@@ -61,8 +61,7 @@ mod tests {
     use std::sync::atomic::Ordering::SeqCst;
 
     use async_trait::async_trait;
-    use http_body_util::Full;
-    use hyper::body::{Bytes, Incoming};
+    use hyper::body::Incoming;
     use hyper::http::{request, response};
     use hyper::service::Service;
     use hyper::{Request, StatusCode};
@@ -70,7 +69,7 @@ mod tests {
     use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
     use crate::body::body_to_string;
     use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
-    use crate::signway_response::SignwayResponse;
+    use crate::signway_response::{SignwayResponse, SignwayResponseBody};
     use crate::{
         BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
     };
@@ -167,7 +166,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 3);
-        body_to_string::<SignwayResponse>(response.into_body(), 396)
+        body_to_string::<SignwayResponseBody>(response.into_body(), 396)
             .await
             .unwrap();
         assert_eq!(COUNTER.load(SeqCst), 399);

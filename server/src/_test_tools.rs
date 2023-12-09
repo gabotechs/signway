@@ -8,7 +8,7 @@ pub(crate) mod tests {
     use anyhow::{anyhow, Context};
     use async_trait::async_trait;
     use http_body_util::Full;
-    use hyper::body::{Bytes, Incoming};
+    use hyper::body::Incoming;
     use hyper::header::HeaderName;
     use hyper::{HeaderMap, Response, StatusCode, Uri};
     use serde::de::DeserializeOwned;

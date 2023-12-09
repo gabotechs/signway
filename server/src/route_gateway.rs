@@ -3,11 +3,10 @@ use std::pin::Pin;
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
-use hyper::body::{Body, Incoming};
+use http_body_util::combinators::BoxBody;
+use hyper::body::Incoming;
 use hyper::client::conn::http1;
-use hyper::http::{request, response};
+use hyper::http::request;
 use hyper::service::Service;
 use hyper::{Method, Request, Response, Uri};
 use hyper_util::rt::TokioIo;
@@ -19,8 +18,8 @@ use crate::gateway_callbacks::CallbackResult;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
 use crate::signway_response::{
-    bad_gateway, bad_request, from_full, from_incoming, internal_server, ok, wrap_full,
-    SignwayResponse,
+    bad_gateway, bad_request, from_string, internal_server, ok, wrap_full, SignwayResponse,
+    SignwayResponseBody,
 };
 use crate::{BytesTransferredInfo, BytesTransferredKind, GetSecretResponse};
 
@@ -32,23 +31,29 @@ fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
     Ok(usize::from_str(content_length.to_str()?)?)
 }
 
-// impl Service<Request<Incoming>> for &SignwayServer {
-//     type Response = Response<SignwayResponse>;
-//     type Error = hyper::Error;
-//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+type SwResponse = SignwayResponse;
+type SwError = hyper::Error;
+type SwFuture = Pin<Box<dyn Future<Output = Result<SignwayResponse, SwError>> + Send>>;
 
-//     fn call(&self, req: Request<Incoming>) -> Self::Future {
-//         SignwayServer::call(self, req)
-//     }
-// }
 
-impl<B: Body> Service<Request<B>> for SignwayServer {
-    type Response = Response<SignwayResponse>;
-    type Error = hyper::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+impl Service<Request<Incoming>> for &SignwayServer {
+    type Response = SwResponse;
+    type Error = SwError;
+    type Future = SwFuture;
 
-    fn call(&self, req: Request<B>) -> Self::Future {
-        Box::pin(async {
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
+        SignwayServer::call(self, req)
+    }
+}
+
+impl Service<Request<Incoming>> for SignwayServer {
+    type Response = SwResponse;
+    type Error = SwError;
+    type Future = SwFuture;
+
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
+        let this = self.clone();
+        Box::pin(async move {
             if req.method() == Method::OPTIONS {
                 return ok();
             }
@@ -60,14 +65,13 @@ impl<B: Body> Service<Request<B>> for SignwayServer {
             let id = unverified_req.info.id;
 
             let (mut parts, body) = req.into_parts();
+            let mut body = BoxBody::new(body);
 
-            let mut sw_body = from_incoming(body);
-
-            if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &parts).await {
+            if let CallbackResult::EarlyResponse(res) = this.on_request.call(&id, &parts).await {
                 return Ok(wrap_full(res));
             };
 
-            let secret = match self.secret_getter.get_secret(&id).await {
+            let secret = match this.secret_getter.get_secret(&id).await {
                 Ok(res) => match res {
                     GetSecretResponse::Secret(secret) => secret,
                     GetSecretResponse::EarlyResponse(early_res) => return Ok(wrap_full(early_res)),
@@ -82,12 +86,13 @@ impl<B: Body> Service<Request<B>> for SignwayServer {
                     Ok(a) => a,
                     Err(e) => return bad_request(e),
                 };
-                let body = match body_to_string::<SignwayResponse>(sw_body, content_length).await {
-                    Ok(a) => a,
-                    Err(e) => return bad_request(e),
-                };
-                unverified_req.elements.body = Some(body.clone());
-                sw_body = from_full(body.into());
+                let body_string =
+                    match body_to_string::<SignwayResponseBody>(body, content_length).await {
+                        Ok(a) => a,
+                        Err(e) => return bad_request(e),
+                    };
+                unverified_req.elements.body = Some(body_string.clone());
+                body = from_string(body_string.into())
             }
 
             let Some(host) = unverified_req.elements.proxy_url.host() else {
@@ -126,20 +131,19 @@ impl<B: Body> Service<Request<B>> for SignwayServer {
                 .title_case_headers(true)
                 .handshake(io)
                 .await?;
+
             tokio::task::spawn(async move {
                 if let Err(err) = conn.await {
                     warn!("Connection failed: {:?}", err);
                 }
             });
-            let mut res = match sender
-                .send_request(Request::from_parts(parts, sw_body))
-                .await
-            {
+
+            let res = match sender.send_request(Request::from_parts(parts, body)).await {
                 Ok(res) => res,
                 Err(e) => return bad_gateway(e),
             };
             let (res_parts, res_body) = res.into_parts();
-            if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res_parts).await
+            if let CallbackResult::EarlyResponse(res) = this.on_success.call(&id, &res_parts).await
             {
                 return Ok(wrap_full(res));
             };
@@ -150,10 +154,10 @@ impl<B: Body> Service<Request<B>> for SignwayServer {
                 kind: BytesTransferredKind::Out,
             };
 
-            if self.monitor_bytes {
-                Ok(Response::from_parts(res_parts, from_incoming(res_body)))
+            if this.monitor_bytes {
+                Ok(Response::from_parts(res_parts, BoxBody::new(res_body)))
             } else {
-                Ok(Response::from_parts(res_parts, from_incoming(res_body)))
+                Ok(Response::from_parts(res_parts, BoxBody::new(res_body)))
             }
         })
     }
