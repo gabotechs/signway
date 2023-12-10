@@ -5,17 +5,20 @@ use std::u16;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use hyper::body::Incoming;
 use hyper::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
 };
 use hyper::http::{request, response, HeaderValue};
-use hyper::Response;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
+use crate::sw_body::incoming_request_into_sw_request;
 use crate::{BytesTransferredInfo, OnBytesTransferred};
 
 #[derive(Clone)]
@@ -35,14 +38,14 @@ pub(crate) struct NoneCallback;
 
 #[async_trait]
 impl OnRequest for NoneCallback {
-    async fn call(&self, _id: &str, _req: &request::Parts) -> CallbackResult {
+    async fn call<'a>(&self, _id: &str, _req: &'a request::Parts) -> CallbackResult<'a> {
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
 impl OnSuccess for NoneCallback {
-    async fn call(&self, _id: &str, _res: &response::Parts) -> CallbackResult {
+    async fn call<'a>(&self, _id: &str, _res: &'a response::Parts) -> CallbackResult<'a> {
         CallbackResult::Empty
     }
 }
@@ -135,7 +138,7 @@ impl SignwayServer {
     /// all the requests have already been handled. Use this function if your application will
     /// continue running after stopping the server. Calling this function has a small runtime cost
     /// for maintaining the reference counting.
-    pub async fn start(&'static self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
         let in_addr: SocketAddr = ([0, 0, 0, 0], self.port).into();
 
         let listener = TcpListener::bind(in_addr).await?;
@@ -145,9 +148,17 @@ impl SignwayServer {
             let (stream, _) = listener.accept().await?;
             let io = TokioIo::new(stream);
 
+            let self_clone = self.clone();
+
             tokio::spawn(async move {
+                let handler = service_fn(move |req: Request<Incoming>| {
+                    let req = incoming_request_into_sw_request(req);
+                    let self_clone = self_clone.clone();
+                    async move { self_clone.handler(req).await }
+                });
+
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, self)
+                    .serve_connection(io, handler)
                     .await
                 {
                     error!("Failed to serve the connection: {:?}", err);
@@ -203,7 +214,7 @@ mod tests {
     #[tokio::test]
     async fn simple_get_works() {
         let server = server_for_testing([("foo", "foo-secret")], 3000);
-        tokio::spawn(server.start());
+        tokio::spawn(async move { server.start().await });
         let signer = UrlSigner::new("foo", "foo-secret");
         let signed_url = signer
             .get_signed_url("http://localhost:3000", &base_request())
@@ -225,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn options_returns_cors() {
         let server = server_for_testing([("foo", "foo-secret")], 3001);
-        tokio::spawn(server.start());
+        tokio::spawn(async move { server.start().await });
         let response = reqwest::Client::new()
             .request(Method::OPTIONS, "http://localhost:3001")
             .send()
@@ -260,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn signed_with_different_secret_does_not_work() {
         let server = server_for_testing([("foo", "foo-secret")], 3002);
-        tokio::spawn(server.start());
+        tokio::spawn(async move { server.start().await });
         let bad_signer = UrlSigner::new("foo", "bad-secret");
 
         let signed_url = bad_signer

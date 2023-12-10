@@ -2,24 +2,23 @@ use std::fmt::{Display, Formatter};
 
 use async_trait::async_trait;
 use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::http::{request, response};
 use hyper::Response;
 use url::Url;
 
-pub enum CallbackResult {
-    EarlyResponse(Response<Full<Bytes>>),
+pub enum CallbackResult<'a> {
+    EarlyResponse(Response<Full<&'a [u8]>>),
     Empty,
 }
 
 #[async_trait]
 pub trait OnRequest: Sync + Send {
-    async fn call(&self, id: &str, req: &request::Parts) -> CallbackResult;
+    async fn call<'a>(&self, id: &str, req: &'a request::Parts) -> CallbackResult<'a>;
 }
 
 #[async_trait]
 pub trait OnSuccess: Sync + Send {
-    async fn call(&self, id: &str, res: &response::Parts) -> CallbackResult;
+    async fn call<'a>(&self, id: &str, res: &'a response::Parts) -> CallbackResult<'a>;
 }
 
 #[derive(Debug, Clone)]
@@ -61,15 +60,12 @@ mod tests {
     use std::sync::atomic::Ordering::SeqCst;
 
     use async_trait::async_trait;
-    use hyper::body::Incoming;
     use hyper::http::{request, response};
-    use hyper::service::Service;
     use hyper::{Request, StatusCode};
 
     use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
-    use crate::body::body_to_string;
     use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
-    use crate::signway_response::{SignwayResponse, SignwayResponseBody};
+    use crate::sw_body::{sw_body_to_string, SwBody};
     use crate::{
         BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
     };
@@ -84,7 +80,7 @@ mod tests {
         )])))
     }
 
-    fn req() -> Request<Incoming> {
+    fn req() -> Request<SwBody<'static>> {
         ReqBuilder::default()
             .query("page", "1")
             .header("Content-Length", "3")
@@ -100,7 +96,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnRequest for SizeCollector<'a> {
-        async fn call(&self, _id: &str, req: &request::Parts) -> CallbackResult {
+        async fn call<'b>(&self, _id: &str, req: &'b request::Parts) -> CallbackResult<'b> {
             let size: &str = req.headers.get("content-length").unwrap().to_str().unwrap();
             self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
@@ -109,7 +105,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnSuccess for SizeCollector<'a> {
-        async fn call(&self, _id: &str, res: &response::Parts) -> CallbackResult {
+        async fn call<'b>(&self, _id: &str, res: &'b response::Parts) -> CallbackResult<'b> {
             let size: &str = res.headers.get("content-length").unwrap().to_str().unwrap();
             self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
@@ -130,7 +126,7 @@ mod tests {
 
         let response = server()
             .on_request(size_collector)
-            .call(req())
+            .handler(req())
             .await
             .unwrap();
 
@@ -145,7 +141,7 @@ mod tests {
 
         let response = server()
             .on_success(size_collector)
-            .call(req())
+            .handler(req())
             .await
             .unwrap();
 
@@ -160,15 +156,13 @@ mod tests {
 
         let response = server()
             .on_bytes_transferred(size_collector)
-            .call(req())
+            .handler(req())
             .await
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 3);
-        body_to_string::<SignwayResponseBody>(response.into_body(), 396)
-            .await
-            .unwrap();
+        sw_body_to_string(response.into_body(), 396).await.unwrap();
         assert_eq!(COUNTER.load(SeqCst), 399);
     }
 }

@@ -9,10 +9,9 @@ pub use server::*;
 #[cfg(test)]
 mod _test_tools;
 
-mod body;
 mod gateway_callbacks;
 mod route_gateway;
 mod secret_getter;
 mod server;
 mod signing;
-mod signway_response;
+mod sw_body;

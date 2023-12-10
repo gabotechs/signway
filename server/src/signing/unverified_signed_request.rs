@@ -135,9 +135,8 @@ impl UnverifiedSignedRequest {
 mod tests {
     use std::ops::Sub;
 
+    use crate::sw_body::sw_body_from_str;
     use lazy_static::lazy_static;
-
-    use crate::body::string_to_body;
 
     use super::*;
 
@@ -151,7 +150,7 @@ mod tests {
         let req = Request::builder()
             .method("POST")
             .uri("/foo")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -164,7 +163,7 @@ mod tests {
         let req = Request::builder()
             .method("POST")
             .uri(format!("/foo?{X_ALGORITHM}=asdf"))
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -178,7 +177,7 @@ mod tests {
         let req = Request::builder()
             .method("POST")
             .uri(&format!("/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}"))
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -194,7 +193,7 @@ mod tests {
             .uri(&format!(
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60"
             ))
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -213,7 +212,7 @@ mod tests {
             .uri(&format!(
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60"
             ))
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -229,7 +228,7 @@ mod tests {
             .uri(&format!(
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host"
             ))
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -249,7 +248,7 @@ mod tests {
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host"
             ))
             .header("HOST", "localhost:3000")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -266,7 +265,7 @@ mod tests {
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host&{X_PROXY}=https://github.com"
             ))
             .header("HOST", "localhost:3000")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -283,7 +282,7 @@ mod tests {
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host&{X_PROXY}=https://github.com&{X_CREDENTIAL}=asdf"
             ))
             .header("HOST", "localhost:3000")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -300,7 +299,7 @@ mod tests {
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host&{X_PROXY}=https://github.com&{X_CREDENTIAL}=asdf&{X_SIGNATURE}=asdf"
             ))
             .header("HOST", "localhost:3000")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let err = UnverifiedSignedRequest::from_request(&req).unwrap_err();
@@ -317,7 +316,7 @@ mod tests {
                 "/foo?{X_ALGORITHM}=asdf&{X_DATE}={now}&{X_EXPIRES}=60&{X_SIGNED_HEADERS}=host&{X_PROXY}=https://github.com&{X_CREDENTIAL}=asdf&{X_SIGNATURE}=asdf&{X_SIGNED_BODY}=true"
             ))
             .header("HOST", "localhost:3000")
-            .body(string_to_body("body"))
+            .body(sw_body_from_str("body"))
             .unwrap();
 
         let sign_req = UnverifiedSignedRequest::from_request(&req).unwrap();
