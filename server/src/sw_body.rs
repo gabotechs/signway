@@ -104,8 +104,7 @@ pub fn internal_server(e: impl Display) -> Result<Response<SwBody>, hyper::Error
 }
 
 pub fn bad_gateway(e: impl Display) -> Result<Response<SwBody>, hyper::Error> {
-    let err = format!("{e}");
-    error!("Answering bad gateway: {err}");
+    error!("Answering bad gateway: {e}");
     Ok(Response::builder()
         .status(StatusCode::BAD_GATEWAY)
         .body(empty())
