@@ -1,24 +1,20 @@
 use std::fmt::Display;
-use std::str;
 
+use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::{Request, Response, StatusCode};
 use tracing::{error, info};
 
-pub type SwBody<'a> = BoxBody<&'a [u8], hyper::Error>;
+pub type SwBody = BoxBody<Bytes, hyper::Error>;
 
-pub(crate) fn sw_body_from_str(str: &str) -> SwBody {
-    BoxBody::new(Full::new(str.as_bytes()).map_err(|err| match err {}))
-}
-
-pub(crate) fn sw_body_from_string<'a>(str: String) -> SwBody<'a> {
-    BoxBody::new(Full::new(str.as_bytes()).map_err(|err| match err {}))
+pub(crate) fn sw_body_from_string(str: String) -> SwBody {
+    BoxBody::new(Full::new(str.into()).map_err(|err| match err {}))
 }
 
 pub(crate) async fn sw_body_to_string(
-    mut body: SwBody<'_>,
+    mut body: SwBody,
     length: usize,
 ) -> Result<String, std::io::Error> {
     let mut data: Vec<u8> = vec![];
@@ -48,7 +44,7 @@ pub(crate) async fn sw_body_to_string(
     })
 }
 
-pub(crate) fn monitor_sw_body<F: Fn(usize) + Sync + Send>(
+pub(crate) fn monitor_sw_body<F: Fn(usize) + Sync + Send + 'static>(
     body: SwBody,
     on_data: F,
 ) -> SwBody {
@@ -58,45 +54,40 @@ pub(crate) fn monitor_sw_body<F: Fn(usize) + Sync + Send>(
             data
         })
     })
-    .into_inner()
+    .boxed()
 }
 
-pub(crate) fn full_response_into_sw_response<'a>(response: Response<Full<&[u8]>>) -> Response<SwBody<'a>> {
+pub(crate) fn full_response_into_sw_response(response: Response<Full<Bytes>>) -> Response<SwBody> {
     let (parts, body) = response.into_parts();
     Response::from_parts(parts, BoxBody::new(body.map_err(|err| match err {})))
 }
 
-pub(crate) fn incoming_body_into_sw_body<'a>(body: Incoming) -> SwBody<'a> {
-    body.map_frame(|frame| frame.map_data(|data| data.as_ref()))
-        .boxed()
+pub(crate) fn incoming_body_into_sw_body(body: Incoming) -> SwBody {
+    body.boxed()
 }
 
-pub(crate) fn incoming_request_into_sw_request<'a>(
-    request: Request<Incoming>,
-) -> Request<SwBody<'a>> {
+pub(crate) fn incoming_request_into_sw_request(request: Request<Incoming>) -> Request<SwBody> {
     let (parts, body) = request.into_parts();
     Request::from_parts(parts, incoming_body_into_sw_body(body))
 }
 
-pub(crate) fn incoming_response_into_sw_response<'a>(
-    response: Response<Incoming>,
-) -> Response<SwBody<'a>> {
+pub(crate) fn incoming_response_into_sw_response(response: Response<Incoming>) -> Response<SwBody> {
     let (parts, body) = response.into_parts();
     Response::from_parts(parts, incoming_body_into_sw_body(body))
 }
 
-pub fn empty<'a>() -> SwBody<'a> {
+pub fn empty() -> SwBody {
     BoxBody::default()
 }
 
-pub fn ok<'a>() -> Result<Response<SwBody<'a>>, hyper::Error> {
+pub fn ok() -> Result<Response<SwBody>, hyper::Error> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .body(empty())
         .unwrap())
 }
 
-pub fn bad_request<'a>(e: impl Display) -> Result<Response<SwBody<'a>>, hyper::Error> {
+pub fn bad_request(e: impl Display) -> Result<Response<SwBody>, hyper::Error> {
     info!("Answering bad request: {e}");
     Ok(Response::builder()
         .status(StatusCode::BAD_REQUEST)
@@ -104,7 +95,7 @@ pub fn bad_request<'a>(e: impl Display) -> Result<Response<SwBody<'a>>, hyper::E
         .unwrap())
 }
 
-pub fn internal_server<'a>(e: impl Display) -> Result<Response<SwBody<'a>>, hyper::Error> {
+pub fn internal_server(e: impl Display) -> Result<Response<SwBody>, hyper::Error> {
     error!("Answering internal server error: {e}");
     Ok(Response::builder()
         .status(StatusCode::BAD_REQUEST)
@@ -112,7 +103,7 @@ pub fn internal_server<'a>(e: impl Display) -> Result<Response<SwBody<'a>>, hype
         .unwrap())
 }
 
-pub fn bad_gateway<'a>(e: impl Display) -> Result<Response<SwBody<'a>>, hyper::Error> {
+pub fn bad_gateway(e: impl Display) -> Result<Response<SwBody>, hyper::Error> {
     let err = format!("{e}");
     error!("Answering bad gateway: {err}");
     Ok(Response::builder()
@@ -127,13 +118,15 @@ mod tests {
 
     #[tokio::test]
     async fn converts_from_string_to_body_and_back() {
-        let result = sw_body_to_string(sw_body_from_str("foo"), 3).await.unwrap();
+        let result = sw_body_to_string(sw_body_from_string("foo".to_string()), 3)
+            .await
+            .unwrap();
         assert_eq!(result, "foo")
     }
 
     #[tokio::test]
     async fn fails_to_read_long_body() {
-        let err = sw_body_to_string(sw_body_from_str("foo"), 2)
+        let err = sw_body_to_string(sw_body_from_string("foo".to_string()), 2)
             .await
             .unwrap_err();
         assert_eq!(err.to_string(), "Body is longer than expected")
@@ -142,7 +135,7 @@ mod tests {
     #[tokio::test]
     async fn works_with_a_really_long_body() {
         let len = 1e8 as usize;
-        sw_body_to_string(sw_body_from_str(&"f".repeat(len)), len)
+        sw_body_to_string(sw_body_from_string("f".repeat(len)), len)
             .await
             .unwrap();
     }

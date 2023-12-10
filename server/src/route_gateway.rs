@@ -1,20 +1,21 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use hyper::client::conn::http1;
+use hyper::header::{
+    ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
+};
 use hyper::http::request;
-use hyper::{Method, Request, Response, Uri};
-use hyper_util::rt::TokioIo;
-use tokio::net::TcpStream;
-use tracing::{info, warn};
+use hyper::{Method, Request, Response, Result, Uri};
+use hyper_tls::HttpsConnector;
+use hyper_util::rt::TokioExecutor;
+use tracing::info;
 
 use crate::gateway_callbacks::CallbackResult;
 use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
 use crate::sw_body::{
-    bad_gateway, bad_request, full_response_into_sw_response,
-    incoming_response_into_sw_response, internal_server,
-    monitor_sw_body, ok, sw_body_to_string, SwBody, sw_body_from_string,
+    bad_gateway, bad_request, full_response_into_sw_response, incoming_response_into_sw_response,
+    internal_server, monitor_sw_body, ok, sw_body_from_string, sw_body_to_string, SwBody,
 };
 use crate::{BytesTransferredInfo, BytesTransferredKind, GetSecretResponse};
 
@@ -27,10 +28,30 @@ fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
 }
 
 impl SignwayServer {
-    pub(crate) async fn handler<'a>(
-        &self,
-        req: Request<SwBody<'_>>,
-    ) -> Result<Response<SwBody<'a>>, hyper::Error> {
+    fn with_cors_headers<B>(&self, mut res: Response<B>) -> Response<B> {
+        let h = res.headers_mut();
+        h.insert(
+            ACCESS_CONTROL_ALLOW_ORIGIN,
+            self.access_control_allow_origin.clone(),
+        );
+        h.insert(
+            ACCESS_CONTROL_ALLOW_METHODS,
+            self.access_control_allow_methods.clone(),
+        );
+        h.insert(
+            ACCESS_CONTROL_ALLOW_HEADERS,
+            self.access_control_allow_headers.clone(),
+        );
+        res
+    }
+
+    pub(crate) async fn handler_with_cors(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
+        self.handler(req)
+            .await
+            .map(|res| self.with_cors_headers(res))
+    }
+
+    pub(crate) async fn handler(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
         if req.method() == Method::OPTIONS {
             return ok();
         }
@@ -51,7 +72,7 @@ impl SignwayServer {
             Ok(res) => match res {
                 GetSecretResponse::Secret(secret) => secret,
                 GetSecretResponse::EarlyResponse(early_res) => {
-                    return Ok(full_response_into_sw_response(early_res))
+                    return Ok(full_response_into_sw_response(early_res));
                 }
             },
             Err(e) => return internal_server(e),
@@ -75,16 +96,6 @@ impl SignwayServer {
         let Some(host) = unverified_req.elements.proxy_url.host() else {
             return bad_request("Invalid host in proxy url");
         };
-        let host = host.to_string();
-
-        let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
-            Ok(a) => a,
-            Err(e) => return bad_request(e),
-        };
-        req_parts.uri = proxy_uri;
-        req_parts.headers.insert("host", host.parse().unwrap());
-        req_parts.headers.extend(secret.headers_extension);
-
         let declared_signature = &unverified_req.info.signature;
         let actual_signature = match signer.get_signature(&unverified_req.elements) {
             Ok(a) => a,
@@ -95,26 +106,16 @@ impl SignwayServer {
             return bad_request("signature mismatch");
         }
 
+        let host = host.to_string();
+        let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
+            Ok(a) => a,
+            Err(e) => return bad_request(e),
+        };
+        req_parts.uri = proxy_uri;
+        req_parts.headers.insert("host", host.parse().unwrap());
+        req_parts.headers.extend(secret.headers_extension);
+
         info!("Id {id} provided a valid signature, redirecting the request...",);
-        let host = req_parts.uri.host().expect("uri has no host");
-        let port = req_parts.uri.port_u16().unwrap_or(80);
-        let addr = format!("{}:{}", host, port);
-
-        let stream = TcpStream::connect(addr).await.unwrap();
-        let io = TokioIo::new(stream);
-
-        let (mut sender, conn) = http1::Builder::new()
-            .preserve_header_case(true)
-            .title_case_headers(true)
-            .handshake(io)
-            .await?;
-
-        tokio::task::spawn(async move {
-            if let Err(err) = conn.await {
-                warn!("Connection failed: {:?}", err);
-            }
-        });
-
         if self.monitor_bytes {
             let on_bytes_transferred = self.on_bytes_transferred.clone();
             let info = BytesTransferredInfo {
@@ -131,10 +132,13 @@ impl SignwayServer {
 
         let req = Request::from_parts(req_parts, req_body);
 
-        let res = match sender.send_request(req).await {
-            Ok(res) => incoming_response_into_sw_response(res),
-            Err(e) => return bad_gateway(e),
+        let https = HttpsConnector::new();
+        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(https);
+        let res = match client.request(req).await {
+            Ok(a) => a,
+            Err(err) => return bad_gateway(err),
         };
+        let res = incoming_response_into_sw_response(res);
 
         let (res_parts, mut res_body) = res.into_parts();
         if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res_parts).await {
@@ -146,7 +150,7 @@ impl SignwayServer {
             let info = BytesTransferredInfo {
                 id: id.to_string(),
                 proxy_url: unverified_req.elements.proxy_url,
-                kind: BytesTransferredKind::In,
+                kind: BytesTransferredKind::Out,
             };
 
             res_body = monitor_sw_body(res_body, move |d| {

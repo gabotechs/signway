@@ -15,20 +15,20 @@ pub(crate) mod tests {
     use url::Url;
 
     use crate::signing::{ElementsToSign, UrlSigner};
-    use crate::sw_body::{empty, sw_body_from_str, SwBody};
+    use crate::sw_body::{empty, SwBody, sw_body_from_string};
     use crate::{GetSecretResponse, SecretGetter, SecretGetterResult};
 
     #[derive(Clone, Debug)]
-    pub(crate) struct ReqBuilder<'a> {
+    pub(crate) struct ReqBuilder {
         method: String,
         query_params: HashMap<String, String>,
         headers: HashMap<String, String>,
-        body: Option<&'a str>,
+        body: Option<String>,
         url: String,
         expiry: u32,
     }
 
-    impl<'a> Default for ReqBuilder<'a> {
+    impl Default for ReqBuilder {
         fn default() -> Self {
             ReqBuilder {
                 method: "GET".to_string(),
@@ -41,7 +41,7 @@ pub(crate) mod tests {
         }
     }
 
-    impl<'a> ReqBuilder<'a> {
+    impl ReqBuilder {
         pub(crate) fn query(mut self, k: &str, v: &str) -> Self {
             self.query_params.insert(k.to_string(), v.to_string());
             self
@@ -74,9 +74,9 @@ pub(crate) mod tests {
             }
         }
 
-        pub(crate) fn build(self) -> anyhow::Result<Request<SwBody<'a>>> {
-            let body = match self.body {
-                Some(b) => sw_body_from_str(b),
+        pub(crate) fn build(self) -> anyhow::Result<Request<SwBody>> {
+            let body = match self.body.clone() {
+                Some(b) => sw_body_from_string(b),
                 None => empty(),
             };
 
@@ -100,7 +100,7 @@ pub(crate) mod tests {
                 datetime: PrimitiveDateTime::new(now.date(), now.time()),
                 method: self.method.clone(),
                 headers: self.build_headers()?,
-                body: self.body.map(|e| e.to_string()),
+                body: self.body.clone()
             };
 
             let signer = UrlSigner::new(id, secret);
@@ -127,7 +127,7 @@ pub(crate) mod tests {
         }
 
         pub(crate) fn body(mut self, v: &str) -> Self {
-            self.body = Some(v);
+            self.body = Some(v.to_string());
             self
         }
     }
@@ -155,7 +155,7 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl SecretGetter for InMemorySecretGetter {
-        async fn get_secret<'a>(&self, id: &str) -> Result<GetSecretResponse<'a>, Box<dyn Error>> {
+        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>> {
             let secret = match self.0.get(id).cloned() {
                 Some(a) => a,
                 None => {

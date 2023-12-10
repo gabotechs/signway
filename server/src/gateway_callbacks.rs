@@ -1,24 +1,25 @@
 use std::fmt::{Display, Formatter};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use http_body_util::Full;
 use hyper::http::{request, response};
 use hyper::Response;
 use url::Url;
 
-pub enum CallbackResult<'a> {
-    EarlyResponse(Response<Full<&'a [u8]>>),
+pub enum CallbackResult {
+    EarlyResponse(Response<Full<Bytes>>),
     Empty,
 }
 
 #[async_trait]
 pub trait OnRequest: Sync + Send {
-    async fn call<'a>(&self, id: &str, req: &'a request::Parts) -> CallbackResult<'a>;
+    async fn call(&self, id: &str, req: &request::Parts) -> CallbackResult;
 }
 
 #[async_trait]
 pub trait OnSuccess: Sync + Send {
-    async fn call<'a>(&self, id: &str, res: &'a response::Parts) -> CallbackResult<'a>;
+    async fn call(&self, id: &str, res: &response::Parts) -> CallbackResult;
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::SeqCst;
+    use std::time::Duration;
 
     use async_trait::async_trait;
     use hyper::http::{request, response};
@@ -80,7 +82,7 @@ mod tests {
         )])))
     }
 
-    fn req() -> Request<SwBody<'static>> {
+    fn req() -> Request<SwBody> {
         ReqBuilder::default()
             .query("page", "1")
             .header("Content-Length", "3")
@@ -96,7 +98,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnRequest for SizeCollector<'a> {
-        async fn call<'b>(&self, _id: &str, req: &'b request::Parts) -> CallbackResult<'b> {
+        async fn call(&self, _id: &str, req: &request::Parts) -> CallbackResult {
             let size: &str = req.headers.get("content-length").unwrap().to_str().unwrap();
             self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
@@ -105,7 +107,7 @@ mod tests {
 
     #[async_trait]
     impl<'a> OnSuccess for SizeCollector<'a> {
-        async fn call<'b>(&self, _id: &str, res: &'b response::Parts) -> CallbackResult<'b> {
+        async fn call(&self, _id: &str, res: &response::Parts) -> CallbackResult {
             let size: &str = res.headers.get("content-length").unwrap().to_str().unwrap();
             self.0.fetch_add(u64::from_str(size).unwrap(), SeqCst);
             CallbackResult::Empty
@@ -160,9 +162,11 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(Duration::from_millis(1)).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 3);
         sw_body_to_string(response.into_body(), 396).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1)).await;
         assert_eq!(COUNTER.load(SeqCst), 399);
     }
 }

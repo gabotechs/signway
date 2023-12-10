@@ -6,12 +6,9 @@ use std::u16;
 use anyhow::Result;
 use async_trait::async_trait;
 use hyper::body::Incoming;
-use hyper::header::{
-    ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
-};
 use hyper::http::{request, response, HeaderValue};
 use hyper::service::service_fn;
-use hyper::{Request, Response};
+use hyper::Request;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -38,14 +35,14 @@ pub(crate) struct NoneCallback;
 
 #[async_trait]
 impl OnRequest for NoneCallback {
-    async fn call<'a>(&self, _id: &str, _req: &'a request::Parts) -> CallbackResult<'a> {
+    async fn call(&self, _id: &str, _req: &request::Parts) -> CallbackResult {
         CallbackResult::Empty
     }
 }
 
 #[async_trait]
 impl OnSuccess for NoneCallback {
-    async fn call<'a>(&self, _id: &str, _res: &'a response::Parts) -> CallbackResult<'a> {
+    async fn call(&self, _id: &str, _res: &response::Parts) -> CallbackResult {
         CallbackResult::Empty
     }
 }
@@ -116,23 +113,6 @@ impl SignwayServer {
         Ok(self)
     }
 
-    fn with_cors_headers<B>(&self, mut res: Response<B>) -> Response<B> {
-        let h = res.headers_mut();
-        h.insert(
-            ACCESS_CONTROL_ALLOW_ORIGIN,
-            self.access_control_allow_origin.clone(),
-        );
-        h.insert(
-            ACCESS_CONTROL_ALLOW_METHODS,
-            self.access_control_allow_methods.clone(),
-        );
-        h.insert(
-            ACCESS_CONTROL_ALLOW_HEADERS,
-            self.access_control_allow_headers.clone(),
-        );
-        res
-    }
-
     /// Starts the server by maintaining a reference count in each request handle. This will grant
     /// that the memory occupied by the server will be freed after this function has finished and
     /// all the requests have already been handled. Use this function if your application will
@@ -154,7 +134,7 @@ impl SignwayServer {
                 let handler = service_fn(move |req: Request<Incoming>| {
                     let req = incoming_request_into_sw_request(req);
                     let self_clone = self_clone.clone();
-                    async move { self_clone.handler(req).await }
+                    async move { self_clone.handler_with_cors(req).await }
                 });
 
                 if let Err(err) = hyper::server::conn::http1::Builder::new()

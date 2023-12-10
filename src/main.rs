@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use std::error::Error;
 use std::str::FromStr;
 
 use async_trait::async_trait;
@@ -87,14 +88,12 @@ impl TryInto<Config> for Args {
 
 #[async_trait]
 impl SecretGetter for Config {
-    type Error = anyhow::Error;
-
-    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
+    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>> {
         if id != self.id {
             return Ok(GetSecretResponse::EarlyResponse(
                 Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
-                    .body(Full::empty())?,
+                    .body(Full::default())?,
             ));
         }
         Ok(GetSecretResponse::Secret(SecretGetterResult {
@@ -137,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tokio::select! {
-        result = server.start_leak() => {
+        result = server.start() => {
             result
         }
         _ = tokio::signal::ctrl_c() => {
