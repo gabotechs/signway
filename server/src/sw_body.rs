@@ -113,6 +113,9 @@ pub fn bad_gateway(e: impl Display) -> Result<Response<SwBody>, hyper::Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
     use super::*;
 
     #[tokio::test]
@@ -137,5 +140,22 @@ mod tests {
         sw_body_to_string(sw_body_from_string("f".repeat(len)), len)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_monitor_sw_body() {
+        let len = 1e8 as usize;
+        let sw_body = sw_body_from_string("f".repeat(len));
+        let total = Arc::new(AtomicUsize::new(0));
+        let count = Arc::new(AtomicUsize::new(0));
+        let total_clone = total.clone();
+        let count_clone = count.clone();
+        let sw_body = monitor_sw_body(sw_body, move |d| {
+            total_clone.fetch_add(d, Ordering::SeqCst);
+            count_clone.fetch_add(1, Ordering::SeqCst);
+        });
+        sw_body_to_string(sw_body, len).await.unwrap();
+        assert_eq!(total.load(Ordering::SeqCst), len);
+        assert_eq!(count.load(Ordering::SeqCst), 1);
     }
 }
