@@ -14,8 +14,8 @@ pub(crate) mod tests {
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::signing::{ElementsToSign, UrlSigner};
-    use crate::sw_body::{empty, SwBody, sw_body_from_string};
+    use crate::signing::{ElementsToSign, SignedBody, UrlSigner};
+    use crate::sw_body::{empty, sw_body_from_string, SwBody};
     use crate::{GetSecretResponse, SecretGetter, SecretGetterResult};
 
     #[derive(Clone, Debug)]
@@ -100,7 +100,10 @@ pub(crate) mod tests {
                 datetime: PrimitiveDateTime::new(now.date(), now.time()),
                 method: self.method.clone(),
                 headers: self.build_headers()?,
-                body: self.body.clone()
+                body: match self.body.clone() {
+                    None => SignedBody::None,
+                    Some(value) => SignedBody::Some(value),
+                },
             };
 
             let signer = UrlSigner::new(id, secret);

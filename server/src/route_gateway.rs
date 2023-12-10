@@ -7,6 +7,7 @@ use hyper::header::{
 use hyper::http::request;
 use hyper::{Method, Request, Response, Result, Uri};
 use hyper_tls::HttpsConnector;
+use hyper_util::client::legacy;
 use hyper_util::rt::TokioExecutor;
 use tracing::info;
 
@@ -17,7 +18,7 @@ use crate::sw_body::{
     bad_gateway, bad_request, full_response_into_sw_response, incoming_response_into_sw_response,
     internal_server, monitor_sw_body, ok, sw_body_from_string, sw_body_to_string, SwBody,
 };
-use crate::{BytesTransferredInfo, BytesTransferredKind, GetSecretResponse};
+use crate::{BytesTransferredInfo, GetSecretResponse};
 
 fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
     let content_length = req
@@ -56,18 +57,27 @@ impl SignwayServer {
             return ok();
         }
 
-        let mut unverified_req = match UnverifiedSignedRequest::from_request(&req) {
+        // Step 1: gather the elements in the request that should taken into account for
+        //  calculating the signature.
+        let (mut req_parts, mut req_body) = req.into_parts();
+        let mut unverified_req = match UnverifiedSignedRequest::try_from(&req_parts) {
             Ok(a) => a,
             Err(e) => return bad_request(e),
         };
-        let id = unverified_req.info.id;
-
-        let (mut req_parts, mut req_body) = req.into_parts();
-
+        let id = unverified_req.info.id.clone();
+        let proxy_url = unverified_req.elements.proxy_url.clone();
+        let proxy_uri = match Uri::from_str(proxy_url.as_str()) {
+            Ok(a) => a,
+            Err(e) => return bad_request(e),
+        };
+        let Some(host) = proxy_url.host() else {
+            return bad_request("Invalid host in proxy url");
+        };
         if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &req_parts).await {
             return Ok(full_response_into_sw_response(res));
         };
 
+        // Step 2: retrieve the secret for the specific ID declared in the request.
         let secret = match self.secret_getter.get_secret(&id).await {
             Ok(res) => match res {
                 GetSecretResponse::Secret(secret) => secret,
@@ -78,9 +88,10 @@ impl SignwayServer {
             Err(e) => return internal_server(e),
         };
 
-        let signer = UrlSigner::new(&id, &secret.secret);
-
-        if unverified_req.info.body_is_pending {
+        // Step 3: At this point the request body was not retrieved, and maybe it should be taken
+        //  into account for calculating the signature, so retrieve it now. We want to delay this
+        //  action as much as possible, as it's potentially expensive.
+        if unverified_req.body_is_pending() {
             let content_length = match parse_content_length(&req_parts) {
                 Ok(a) => a,
                 Err(e) => return bad_request(e),
@@ -89,77 +100,55 @@ impl SignwayServer {
                 Ok(a) => a,
                 Err(e) => return bad_request(e),
             };
-            unverified_req.elements.body = Some(body_string.clone());
+            unverified_req.replace_body(body_string.clone());
             req_body = sw_body_from_string(body_string)
         }
 
-        let Some(host) = unverified_req.elements.proxy_url.host() else {
-            return bad_request("Invalid host in proxy url");
-        };
-        let declared_signature = &unverified_req.info.signature;
+        // Step 4: Now that all the elements that should be signed are in place, calculate the
+        //  signature and check that it matches the declared one.
+        let signer = UrlSigner::new(&id, &secret.secret);
         let actual_signature = match signer.get_signature(&unverified_req.elements) {
             Ok(a) => a,
             Err(e) => return internal_server(e),
         };
-
-        if declared_signature != &actual_signature {
+        if unverified_req.info.signature != actual_signature {
             return bad_request("signature mismatch");
         }
+        info!("Id {id} provided a valid signature, redirecting the request...",);
 
+        // Step 5: The signature was verified, so let's proxy the request to the specified host.
         let host = host.to_string();
-        let proxy_uri = match Uri::from_str(unverified_req.elements.proxy_url.as_str()) {
-            Ok(a) => a,
-            Err(e) => return bad_request(e),
-        };
         req_parts.uri = proxy_uri;
         req_parts.headers.insert("host", host.parse().unwrap());
         req_parts.headers.extend(secret.headers_extension);
-
-        info!("Id {id} provided a valid signature, redirecting the request...",);
         if self.monitor_bytes {
             let on_bytes_transferred = self.on_bytes_transferred.clone();
-            let info = BytesTransferredInfo {
-                id: id.to_string(),
-                proxy_url: unverified_req.elements.proxy_url.clone(),
-                kind: BytesTransferredKind::In,
-            };
+            let id = id.clone();
+            let proxy_url = proxy_url.clone();
             req_body = monitor_sw_body(req_body, move |d| {
-                let info = info.clone();
+                let info = BytesTransferredInfo::in_kind(&id, &proxy_url);
                 let on_bytes_transferred = on_bytes_transferred.clone();
                 tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
             })
         }
-
         let req = Request::from_parts(req_parts, req_body);
-
-        let https = HttpsConnector::new();
-        let client = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(https);
+        let client = legacy::Client::builder(TokioExecutor::new()).build(HttpsConnector::new());
         let res = match client.request(req).await {
             Ok(a) => a,
             Err(err) => return bad_gateway(err),
         };
-        let res = incoming_response_into_sw_response(res);
-
-        let (res_parts, mut res_body) = res.into_parts();
+        let (res_parts, mut res_body) = incoming_response_into_sw_response(res).into_parts();
         if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res_parts).await {
             return Ok(full_response_into_sw_response(res));
         };
-
         if self.monitor_bytes {
             let on_bytes_transferred = self.on_bytes_transferred.clone();
-            let info = BytesTransferredInfo {
-                id: id.to_string(),
-                proxy_url: unverified_req.elements.proxy_url,
-                kind: BytesTransferredKind::Out,
-            };
-
             res_body = monitor_sw_body(res_body, move |d| {
-                let info = info.clone();
+                let info = BytesTransferredInfo::out_kind(&id, &proxy_url);
                 let on_bytes_transferred = on_bytes_transferred.clone();
                 tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
             })
         }
-
         Ok(Response::from_parts(res_parts, res_body))
     }
 }

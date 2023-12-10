@@ -48,6 +48,24 @@ pub struct BytesTransferredInfo {
     pub kind: BytesTransferredKind,
 }
 
+impl BytesTransferredInfo {
+    pub fn in_kind(id: &str, url: &Url) -> Self {
+        BytesTransferredInfo {
+            id: id.to_string(),
+            proxy_url: url.clone(),
+            kind: BytesTransferredKind::In,
+        }
+    }
+
+    pub fn out_kind(id: &str, url: &Url) -> Self {
+        BytesTransferredInfo {
+            id: id.to_string(),
+            proxy_url: url.clone(),
+            kind: BytesTransferredKind::Out,
+        }
+    }
+}
+
 #[async_trait]
 pub trait OnBytesTransferred: Sync + Send {
     async fn call(&self, bytes: usize, info: BytesTransferredInfo);

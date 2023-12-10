@@ -160,7 +160,7 @@ mod tests {
 
     use crate::_test_tools::tests::InMemorySecretGetter;
     use crate::secret_getter::SecretGetterResult;
-    use crate::signing::{ElementsToSign, UrlSigner};
+    use crate::signing::{ElementsToSign, SignedBody, UrlSigner};
     use crate::SignwayServer;
 
     fn server_for_testing<const N: usize>(config: [(&str, &str); N], port: u16) -> SignwayServer {
@@ -187,7 +187,7 @@ mod tests {
             datetime: PrimitiveDateTime::new(now.date(), now.time()),
             method: "GET".to_string(),
             headers: None,
-            body: None,
+            body: SignedBody::None,
         }
     }
 
