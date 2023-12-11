@@ -103,14 +103,13 @@ impl SignwayServer {
 
             let self_clone = self.clone();
 
-                let handler = service_fn(move |req: Request<Incoming>| {
-                    let req = incoming_request_into_sw_request(req);
-                    let self_clone = self_clone.clone();
-                    async move { self_clone.handler_with_cors(req).await }
-                });
+            let handler = service_fn(move |req: Request<Incoming>| {
+                let req = incoming_request_into_sw_request(req);
+                let self_clone = self_clone.clone();
+                async move { self_clone.handler_with_cors(req).await }
+            });
 
             tokio::spawn(async move {
-
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
                     .serve_connection(io, handler)
                     .await

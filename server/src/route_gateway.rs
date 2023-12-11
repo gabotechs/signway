@@ -50,7 +50,7 @@ impl SignwayServer {
 
     fn sw_body_with_monitoring(&self, body: SwBody, info: BytesTransferredInfo) -> SwBody {
         if let Some(on_bytes_transferred) = &self.on_bytes_transferred {
-                let on_bytes_transferred = on_bytes_transferred.clone();
+            let on_bytes_transferred = on_bytes_transferred.clone();
             monitor_sw_body(body, move |d| {
                 let on_bytes_transferred = on_bytes_transferred.clone();
                 let info = info.clone();
