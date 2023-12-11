@@ -29,27 +29,36 @@ fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
 }
 
 impl SignwayServer {
-    fn with_cors_headers<B>(&self, mut res: Response<B>) -> Response<B> {
-        let h = res.headers_mut();
-        h.insert(
-            ACCESS_CONTROL_ALLOW_ORIGIN,
-            self.access_control_allow_origin.clone(),
-        );
-        h.insert(
-            ACCESS_CONTROL_ALLOW_METHODS,
-            self.access_control_allow_methods.clone(),
-        );
-        h.insert(
-            ACCESS_CONTROL_ALLOW_HEADERS,
-            self.access_control_allow_headers.clone(),
-        );
-        res
+    pub(crate) async fn handler_with_cors(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
+        self.handler(req).await.map(|mut res| {
+            let h = res.headers_mut();
+            h.insert(
+                ACCESS_CONTROL_ALLOW_ORIGIN,
+                self.access_control_allow_origin.clone(),
+            );
+            h.insert(
+                ACCESS_CONTROL_ALLOW_METHODS,
+                self.access_control_allow_methods.clone(),
+            );
+            h.insert(
+                ACCESS_CONTROL_ALLOW_HEADERS,
+                self.access_control_allow_headers.clone(),
+            );
+            res
+        })
     }
 
-    pub(crate) async fn handler_with_cors(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
-        self.handler(req)
-            .await
-            .map(|res| self.with_cors_headers(res))
+    fn sw_body_with_monitoring(&self, body: SwBody, info: BytesTransferredInfo) -> SwBody {
+        if let Some(on_bytes_transferred) = &self.on_bytes_transferred {
+                let on_bytes_transferred = on_bytes_transferred.clone();
+            monitor_sw_body(body, move |d| {
+                let on_bytes_transferred = on_bytes_transferred.clone();
+                let info = info.clone();
+                tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
+            })
+        } else {
+            body
+        }
     }
 
     pub(crate) async fn handler(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
@@ -73,9 +82,11 @@ impl SignwayServer {
         let Some(host) = proxy_url.host() else {
             return bad_request("Invalid host in proxy url");
         };
-        if let CallbackResult::EarlyResponse(res) = self.on_request.call(&id, &req_parts).await {
-            return Ok(full_response_into_sw_response(res));
-        };
+        if let Some(on_request) = &self.on_request {
+            if let CallbackResult::EarlyResponse(res) = on_request.call(&id, &req_parts).await {
+                return Ok(full_response_into_sw_response(res));
+            };
+        }
 
         // Step 2: retrieve the secret for the specific ID declared in the request.
         let secret = match self.secret_getter.get_secret(&id).await {
@@ -121,16 +132,10 @@ impl SignwayServer {
         req_parts.uri = proxy_uri;
         req_parts.headers.insert("host", host.parse().unwrap());
         req_parts.headers.extend(secret.headers_extension);
-        if self.monitor_bytes {
-            let on_bytes_transferred = self.on_bytes_transferred.clone();
-            let id = id.clone();
-            let proxy_url = proxy_url.clone();
-            req_body = monitor_sw_body(req_body, move |d| {
-                let info = BytesTransferredInfo::in_kind(&id, &proxy_url);
-                let on_bytes_transferred = on_bytes_transferred.clone();
-                tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
-            })
-        }
+
+        req_body =
+            self.sw_body_with_monitoring(req_body, BytesTransferredInfo::in_kind(&id, &proxy_url));
+
         let req = Request::from_parts(req_parts, req_body);
         let client = legacy::Client::builder(TokioExecutor::new()).build(HttpsConnector::new());
         let res = match client.request(req).await {
@@ -138,17 +143,15 @@ impl SignwayServer {
             Err(err) => return bad_gateway(err),
         };
         let (res_parts, mut res_body) = incoming_response_into_sw_response(res).into_parts();
-        if let CallbackResult::EarlyResponse(res) = self.on_success.call(&id, &res_parts).await {
-            return Ok(full_response_into_sw_response(res));
-        };
-        if self.monitor_bytes {
-            let on_bytes_transferred = self.on_bytes_transferred.clone();
-            res_body = monitor_sw_body(res_body, move |d| {
-                let info = BytesTransferredInfo::out_kind(&id, &proxy_url);
-                let on_bytes_transferred = on_bytes_transferred.clone();
-                tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
-            })
+        if let Some(on_success) = &self.on_success {
+            if let CallbackResult::EarlyResponse(res) = on_success.call(&id, &res_parts).await {
+                return Ok(full_response_into_sw_response(res));
+            };
         }
+
+        res_body =
+            self.sw_body_with_monitoring(res_body, BytesTransferredInfo::out_kind(&id, &proxy_url));
+
         Ok(Response::from_parts(res_parts, res_body))
     }
 }

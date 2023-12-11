@@ -1,55 +1,31 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::u16;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use hyper::body::Incoming;
-use hyper::http::{request, response, HeaderValue};
+use hyper::http::HeaderValue;
 use hyper::service::service_fn;
 use hyper::Request;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
-use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
+use crate::gateway_callbacks::{OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
 use crate::sw_body::incoming_request_into_sw_request;
-use crate::{BytesTransferredInfo, OnBytesTransferred};
+use crate::OnBytesTransferred;
 
 #[derive(Clone)]
 pub struct SignwayServer {
     pub port: u16,
     pub secret_getter: Arc<dyn SecretGetter>,
-    pub on_request: Arc<dyn OnRequest>,
-    pub on_success: Arc<dyn OnSuccess>,
-    pub on_bytes_transferred: Arc<dyn OnBytesTransferred>,
-    pub(crate) monitor_bytes: bool,
+    pub on_request: Option<Arc<dyn OnRequest>>,
+    pub on_success: Option<Arc<dyn OnSuccess>>,
+    pub on_bytes_transferred: Option<Arc<dyn OnBytesTransferred>>,
     pub(crate) access_control_allow_origin: HeaderValue,
     pub(crate) access_control_allow_methods: HeaderValue,
     pub(crate) access_control_allow_headers: HeaderValue,
-}
-
-pub(crate) struct NoneCallback;
-
-#[async_trait]
-impl OnRequest for NoneCallback {
-    async fn call(&self, _id: &str, _req: &request::Parts) -> CallbackResult {
-        CallbackResult::Empty
-    }
-}
-
-#[async_trait]
-impl OnSuccess for NoneCallback {
-    async fn call(&self, _id: &str, _res: &response::Parts) -> CallbackResult {
-        CallbackResult::Empty
-    }
-}
-
-#[async_trait]
-impl OnBytesTransferred for NoneCallback {
-    async fn call(&self, _bytes: usize, _info: BytesTransferredInfo) {}
 }
 
 impl SignwayServer {
@@ -58,10 +34,9 @@ impl SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter: Arc::new(secret_getter),
-            on_request: Arc::new(NoneCallback {}),
-            on_success: Arc::new(NoneCallback {}),
-            on_bytes_transferred: Arc::new(NoneCallback {}),
-            monitor_bytes: false,
+            on_request: None,
+            on_success: None,
+            on_bytes_transferred: None,
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
@@ -72,10 +47,9 @@ impl SignwayServer {
         SignwayServer {
             port,
             secret_getter: Arc::new(secret_getter),
-            on_request: Arc::new(NoneCallback {}),
-            on_success: Arc::new(NoneCallback {}),
-            on_bytes_transferred: Arc::new(NoneCallback {}),
-            monitor_bytes: false,
+            on_request: None,
+            on_success: None,
+            on_bytes_transferred: None,
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
@@ -83,18 +57,17 @@ impl SignwayServer {
     }
 
     pub fn on_success(mut self, callback: impl OnSuccess + 'static) -> Self {
-        self.on_success = Arc::new(callback);
+        self.on_success = Some(Arc::new(callback));
         self
     }
 
     pub fn on_request(mut self, callback: impl OnRequest + 'static) -> Self {
-        self.on_request = Arc::new(callback);
+        self.on_request = Some(Arc::new(callback));
         self
     }
 
     pub fn on_bytes_transferred(mut self, callback: impl OnBytesTransferred + 'static) -> Self {
-        self.on_bytes_transferred = Arc::new(callback);
-        self.monitor_bytes = true;
+        self.on_bytes_transferred = Some(Arc::new(callback));
         self
     }
 
@@ -130,12 +103,13 @@ impl SignwayServer {
 
             let self_clone = self.clone();
 
-            tokio::spawn(async move {
                 let handler = service_fn(move |req: Request<Incoming>| {
                     let req = incoming_request_into_sw_request(req);
                     let self_clone = self_clone.clone();
                     async move { self_clone.handler_with_cors(req).await }
                 });
+
+            tokio::spawn(async move {
 
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
                     .serve_connection(io, handler)
