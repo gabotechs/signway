@@ -57,8 +57,8 @@ Export your OpenAI's API key here:
 export API_KEY="your working token"
 ```
 
-Launch Signway, ready for accepting requests signed with
-`SW_ID` and `SW_SECRET`:
+Launch Signway, ready for accepting requests signed
+with `SW_ID` and `SW_SECRET`:
 
 ```bash
 docker run -p 3000:3000 gabotechs/signway \
