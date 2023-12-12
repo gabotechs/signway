@@ -66,16 +66,11 @@ impl TryInto<Config> for Args {
 
     fn try_into(self) -> Result<Config, Self::Error> {
         let mut headers = HeaderMap::new();
-
         for h in self.header {
+            let invalid_header = || anyhow!("Invalid header '{h}'");
             let mut split = h.splitn(2, ':');
-            let k = split
-                .next()
-                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?;
-            let v = split
-                .next()
-                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?
-                .to_string();
+            let k = split.next().ok_or_else(invalid_header)?;
+            let v = split.next().ok_or_else(invalid_header)?.to_string();
             headers.insert(HeaderName::from_str(k)?, v.trim().parse()?);
         }
 
@@ -124,9 +119,7 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
-                    Ok(info) => {
-                        log_info(info);
-                    }
+                    Ok(info) => log_info(info),
                     Err(err) => match err {
                         RecvError::Closed => return,
                         RecvError::Lagged(err) => {
@@ -148,11 +141,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tokio::select! {
-        result = server.start() => {
-            result
-        }
-        _ = tokio::signal::ctrl_c() => {
-            Ok(())
-        }
+        result = server.start() => result,
+        _ = tokio::signal::ctrl_c() => Ok(())
     }
 }
