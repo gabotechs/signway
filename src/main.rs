@@ -4,14 +4,14 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use clap::Parser;
-use tracing::info;
+use tracing::{error, info};
 
 use signway_server::http_body_util::Full;
 use signway_server::hyper::header::HeaderName;
 use signway_server::hyper::{Response, StatusCode};
 use signway_server::{
-    BytesTransferredInfo, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
-    SecretGetterResult, SignwayServer,
+    BytesTransferredInfo, GetSecretResponse, HeaderMap, SecretGetter, SecretGetterResult,
+    SignwayServer,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -103,15 +103,11 @@ impl SecretGetter for Config {
     }
 }
 
-struct BytesTransferredLogger;
-
-#[async_trait]
-impl OnBytesTransferred for BytesTransferredLogger {
-    async fn call(&self, bytes: usize, info: BytesTransferredInfo) {
-        let kind = info.kind.to_string();
-        let id = info.id;
-        info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
-    }
+fn log_info(info: BytesTransferredInfo) {
+    let bytes = info.bytes;
+    let kind = info.kind.to_string();
+    let id = info.id;
+    info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
 }
 
 #[tokio::main]
@@ -123,7 +119,15 @@ async fn main() -> anyhow::Result<()> {
     let mut server = SignwayServer::from_env(config);
 
     if !args.no_bytes_monitor {
-        server = server.on_bytes_transferred(BytesTransferredLogger {});
+        let mut rx = server.subscribe_to_monitoring();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(info) => { log_info(info); },
+                    Err(err) => { error!("Error receiving monitoring data {err}"); },
+                };
+            }
+        });
     }
     if let Some(value) = args.access_control_allow_headers {
         server = server.access_control_allow_headers(&value)?;

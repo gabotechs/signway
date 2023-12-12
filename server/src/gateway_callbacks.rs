@@ -45,30 +45,8 @@ impl Display for BytesTransferredKind {
 pub struct BytesTransferredInfo {
     pub id: String,
     pub proxy_url: Url,
+    pub bytes: usize,
     pub kind: BytesTransferredKind,
-}
-
-impl BytesTransferredInfo {
-    pub fn in_kind(id: &str, url: &Url) -> Self {
-        BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: url.clone(),
-            kind: BytesTransferredKind::In,
-        }
-    }
-
-    pub fn out_kind(id: &str, url: &Url) -> Self {
-        BytesTransferredInfo {
-            id: id.to_string(),
-            proxy_url: url.clone(),
-            kind: BytesTransferredKind::Out,
-        }
-    }
-}
-
-#[async_trait]
-pub trait OnBytesTransferred: Sync + Send {
-    async fn call(&self, bytes: usize, info: BytesTransferredInfo);
 }
 
 #[cfg(test)]
@@ -77,7 +55,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::SeqCst;
-    use std::time::Duration;
 
     use async_trait::async_trait;
     use hyper::http::{request, response};
@@ -85,10 +62,8 @@ mod tests {
 
     use crate::_test_tools::tests::{InMemorySecretGetter, ReqBuilder};
     use crate::gateway_callbacks::{CallbackResult, OnRequest, OnSuccess};
-    use crate::sw_body::{sw_body_to_string, SwBody};
-    use crate::{
-        BytesTransferredInfo, HeaderMap, OnBytesTransferred, SecretGetterResult, SignwayServer,
-    };
+    use crate::sw_body::SwBody;
+    use crate::{HeaderMap, SecretGetterResult, SignwayServer};
 
     fn server() -> SignwayServer {
         SignwayServer::from_env(InMemorySecretGetter(HashMap::from([(
@@ -132,13 +107,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
-    impl<'a> OnBytesTransferred for SizeCollector<'a> {
-        async fn call(&self, bytes: usize, _info: BytesTransferredInfo) {
-            self.0.fetch_add(bytes as u64, SeqCst);
-        }
-    }
-
     #[tokio::test]
     async fn test_on_request() {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -167,24 +135,5 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(COUNTER.load(SeqCst), 396);
-    }
-
-    #[tokio::test]
-    async fn test_on_bytes_transferred() {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let size_collector = SizeCollector(&COUNTER);
-
-        let response = server()
-            .on_bytes_transferred(size_collector)
-            .handler(req())
-            .await
-            .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(1)).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(COUNTER.load(SeqCst), 3);
-        sw_body_to_string(response.into_body(), 396).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(1)).await;
-        assert_eq!(COUNTER.load(SeqCst), 399);
     }
 }

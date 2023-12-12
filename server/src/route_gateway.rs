@@ -16,9 +16,9 @@ use crate::server::SignwayServer;
 use crate::signing::{UnverifiedSignedRequest, UrlSigner};
 use crate::sw_body::{
     bad_gateway, bad_request, full_response_into_sw_response, incoming_response_into_sw_response,
-    internal_server, monitor_sw_body, ok, sw_body_from_string, sw_body_to_string, SwBody,
+    internal_server, ok, sw_body_from_string, sw_body_to_string, SwBody,
 };
-use crate::{BytesTransferredInfo, GetSecretResponse};
+use crate::GetSecretResponse;
 
 fn parse_content_length(req: &request::Parts) -> anyhow::Result<usize> {
     let content_length = req
@@ -46,19 +46,6 @@ impl SignwayServer {
             );
             res
         })
-    }
-
-    fn sw_body_with_monitoring(&self, body: SwBody, info: BytesTransferredInfo) -> SwBody {
-        if let Some(on_bytes_transferred) = &self.on_bytes_transferred {
-            let on_bytes_transferred = on_bytes_transferred.clone();
-            monitor_sw_body(body, move |d| {
-                let on_bytes_transferred = on_bytes_transferred.clone();
-                let info = info.clone();
-                tokio::spawn(async move { on_bytes_transferred.call(d, info).await });
-            })
-        } else {
-            body
-        }
     }
 
     pub(crate) async fn handler(&self, req: Request<SwBody>) -> Result<Response<SwBody>> {
@@ -133,8 +120,7 @@ impl SignwayServer {
         req_parts.headers.insert("host", host.parse().unwrap());
         req_parts.headers.extend(secret.headers_extension);
 
-        req_body =
-            self.sw_body_with_monitoring(req_body, BytesTransferredInfo::in_kind(&id, &proxy_url));
+        req_body = self.sw_body_with_monitoring(req_body, &id, &proxy_url, false);
 
         let req = Request::from_parts(req_parts, req_body);
         let client = legacy::Client::builder(TokioExecutor::new()).build(HttpsConnector::new());
@@ -149,8 +135,7 @@ impl SignwayServer {
             };
         }
 
-        res_body =
-            self.sw_body_with_monitoring(res_body, BytesTransferredInfo::out_kind(&id, &proxy_url));
+        res_body = self.sw_body_with_monitoring(res_body, &id, &proxy_url, true);
 
         Ok(Response::from_parts(res_parts, res_body))
     }

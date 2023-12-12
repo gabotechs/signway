@@ -14,7 +14,7 @@ use tracing::{error, info};
 use crate::gateway_callbacks::{OnRequest, OnSuccess};
 use crate::secret_getter::SecretGetter;
 use crate::sw_body::incoming_request_into_sw_request;
-use crate::OnBytesTransferred;
+use crate::BytesTransferredInfo;
 
 #[derive(Clone)]
 pub struct SignwayServer {
@@ -22,7 +22,7 @@ pub struct SignwayServer {
     pub secret_getter: Arc<dyn SecretGetter>,
     pub on_request: Option<Arc<dyn OnRequest>>,
     pub on_success: Option<Arc<dyn OnSuccess>>,
-    pub on_bytes_transferred: Option<Arc<dyn OnBytesTransferred>>,
+    pub(crate) monitoring_tx: tokio::sync::broadcast::Sender<BytesTransferredInfo>,
     pub(crate) access_control_allow_origin: HeaderValue,
     pub(crate) access_control_allow_methods: HeaderValue,
     pub(crate) access_control_allow_headers: HeaderValue,
@@ -30,13 +30,14 @@ pub struct SignwayServer {
 
 impl SignwayServer {
     pub fn from_env(secret_getter: impl SecretGetter + 'static) -> SignwayServer {
+        let (monitoring_tx, _) = tokio::sync::broadcast::channel(100);
         SignwayServer {
             port: u16::from_str(&std::env::var("PORT").unwrap_or("3000".to_string()))
                 .expect("failed to parse PORT env variable"),
             secret_getter: Arc::new(secret_getter),
             on_request: None,
             on_success: None,
-            on_bytes_transferred: None,
+            monitoring_tx,
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
@@ -44,12 +45,13 @@ impl SignwayServer {
     }
 
     pub fn from_port(secret_getter: impl SecretGetter + 'static, port: u16) -> SignwayServer {
+        let (monitoring_tx, _) = tokio::sync::broadcast::channel(100);
         SignwayServer {
             port,
             secret_getter: Arc::new(secret_getter),
             on_request: None,
             on_success: None,
-            on_bytes_transferred: None,
+            monitoring_tx,
             access_control_allow_origin: HeaderValue::from_static("*"),
             access_control_allow_headers: HeaderValue::from_static("*"),
             access_control_allow_methods: HeaderValue::from_static("*"),
@@ -63,11 +65,6 @@ impl SignwayServer {
 
     pub fn on_request(mut self, callback: impl OnRequest + 'static) -> Self {
         self.on_request = Some(Arc::new(callback));
-        self
-    }
-
-    pub fn on_bytes_transferred(mut self, callback: impl OnBytesTransferred + 'static) -> Self {
-        self.on_bytes_transferred = Some(Arc::new(callback));
         self
     }
 
