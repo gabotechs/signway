@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use std::error::Error;
 use std::str::FromStr;
+use tokio::sync::broadcast::error::RecvError;
 
 use async_trait::async_trait;
 use clap::Parser;
@@ -123,8 +124,15 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             loop {
                 match rx.recv().await {
-                    Ok(info) => { log_info(info); },
-                    Err(err) => { error!("Error receiving monitoring data {err}"); },
+                    Ok(info) => {
+                        log_info(info);
+                    }
+                    Err(err) => match err {
+                        RecvError::Closed => return,
+                        RecvError::Lagged(err) => {
+                            error!("Monitoring thread is lagging behind: {err}")
+                        }
+                    },
                 };
             }
         });
