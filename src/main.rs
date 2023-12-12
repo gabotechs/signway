@@ -1,15 +1,18 @@
 use anyhow::anyhow;
+use std::error::Error;
 use std::str::FromStr;
+use tokio::sync::broadcast::error::RecvError;
 
 use async_trait::async_trait;
 use clap::Parser;
-use tracing::info;
+use tracing::{error, info};
 
+use signway_server::http_body_util::Full;
 use signway_server::hyper::header::HeaderName;
-use signway_server::hyper::{Body, Response, StatusCode};
+use signway_server::hyper::{Response, StatusCode};
 use signway_server::{
-    BytesTransferredInfo, GetSecretResponse, HeaderMap, OnBytesTransferred, SecretGetter,
-    SecretGetterResult, SignwayServer,
+    BytesTransferredInfo, GetSecretResponse, HeaderMap, SecretGetter, SecretGetterResult,
+    SignwayServer,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -63,16 +66,11 @@ impl TryInto<Config> for Args {
 
     fn try_into(self) -> Result<Config, Self::Error> {
         let mut headers = HeaderMap::new();
-
         for h in self.header {
+            let invalid_header = || anyhow!("Invalid header '{h}'");
             let mut split = h.splitn(2, ':');
-            let k = split
-                .next()
-                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?;
-            let v = split
-                .next()
-                .ok_or_else(|| anyhow!("Invalid header '{h}'"))?
-                .to_string();
+            let k = split.next().ok_or_else(invalid_header)?;
+            let v = split.next().ok_or_else(invalid_header)?.to_string();
             headers.insert(HeaderName::from_str(k)?, v.trim().parse()?);
         }
 
@@ -86,14 +84,12 @@ impl TryInto<Config> for Args {
 
 #[async_trait]
 impl SecretGetter for Config {
-    type Error = anyhow::Error;
-
-    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
+    async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>> {
         if id != self.id {
             return Ok(GetSecretResponse::EarlyResponse(
                 Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
-                    .body(Body::empty())?,
+                    .body(Full::default())?,
             ));
         }
         Ok(GetSecretResponse::Secret(SecretGetterResult {
@@ -103,15 +99,11 @@ impl SecretGetter for Config {
     }
 }
 
-struct BytesTransferredLogger;
-
-#[async_trait]
-impl OnBytesTransferred for BytesTransferredLogger {
-    async fn call(&self, bytes: usize, info: BytesTransferredInfo) {
-        let kind = info.kind.to_string();
-        let id = info.id;
-        info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
-    }
+fn log_info(info: BytesTransferredInfo) {
+    let bytes = info.bytes;
+    let kind = info.kind.to_string();
+    let id = info.id;
+    info!(bytes, id, kind, "{id} Transferred {bytes} Bytes {kind}");
 }
 
 #[tokio::main]
@@ -123,7 +115,20 @@ async fn main() -> anyhow::Result<()> {
     let mut server = SignwayServer::from_env(config);
 
     if !args.no_bytes_monitor {
-        server = server.on_bytes_transferred(BytesTransferredLogger {});
+        let mut rx = server.subscribe_to_monitoring();
+        tokio::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(info) => log_info(info),
+                    Err(err) => match err {
+                        RecvError::Closed => return,
+                        RecvError::Lagged(err) => {
+                            error!("Monitoring thread is lagging behind: {err}")
+                        }
+                    },
+                };
+            }
+        });
     }
     if let Some(value) = args.access_control_allow_headers {
         server = server.access_control_allow_headers(&value)?;
@@ -136,11 +141,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tokio::select! {
-        result = server.start_leak() => {
-            result
-        }
-        _ = tokio::signal::ctrl_c() => {
-            Ok(())
-        }
+        result = server.start() => result,
+        _ = tokio::signal::ctrl_c() => Ok(())
     }
 }

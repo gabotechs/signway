@@ -1,23 +1,22 @@
-use hyper::{Body, Request};
-
 #[cfg(test)]
 pub(crate) mod tests {
+    use hyper::Request;
     use std::collections::HashMap;
-    use std::convert::Infallible;
+    use std::error::Error;
     use std::str::FromStr;
 
     use anyhow::{anyhow, Context};
     use async_trait::async_trait;
+    use http_body_util::Full;
     use hyper::header::HeaderName;
     use hyper::{HeaderMap, Response, StatusCode, Uri};
     use serde::de::DeserializeOwned;
     use time::{OffsetDateTime, PrimitiveDateTime};
     use url::Url;
 
-    use crate::signing::{ElementsToSign, UrlSigner};
+    use crate::signing::{ElementsToSign, SignedBody, UrlSigner};
+    use crate::sw_body::{empty, sw_body_from_string, SwBody};
     use crate::{GetSecretResponse, SecretGetter, SecretGetterResult};
-
-    use super::*;
 
     #[derive(Clone, Debug)]
     pub(crate) struct ReqBuilder {
@@ -75,10 +74,10 @@ pub(crate) mod tests {
             }
         }
 
-        pub(crate) fn build(&self) -> anyhow::Result<Request<Body>> {
-            let body = match &self.body {
-                Some(b) => Body::from(b.to_string()),
-                None => Body::empty(),
+        pub(crate) fn build(self) -> anyhow::Result<Request<SwBody>> {
+            let body = match self.body.clone() {
+                Some(b) => sw_body_from_string(b),
+                None => empty(),
             };
 
             let mut builder = Request::builder();
@@ -101,7 +100,10 @@ pub(crate) mod tests {
                 datetime: PrimitiveDateTime::new(now.date(), now.time()),
                 method: self.method.clone(),
                 headers: self.build_headers()?,
-                body: self.body.clone(),
+                body: match self.body.clone() {
+                    None => SignedBody::None,
+                    Some(value) => SignedBody::Some(value),
+                },
             };
 
             let signer = UrlSigner::new(id, secret);
@@ -156,18 +158,16 @@ pub(crate) mod tests {
 
     #[async_trait]
     impl SecretGetter for InMemorySecretGetter {
-        type Error = Infallible;
-
-        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Self::Error> {
+        async fn get_secret(&self, id: &str) -> Result<GetSecretResponse, Box<dyn Error>> {
             let secret = match self.0.get(id).cloned() {
                 Some(a) => a,
                 None => {
                     return Ok(GetSecretResponse::EarlyResponse(
                         Response::builder()
                             .status(StatusCode::UNAUTHORIZED)
-                            .body(Body::empty())
+                            .body(Full::default())
                             .unwrap(),
-                    ))
+                    ));
                 }
             };
 

@@ -3,10 +3,10 @@ use std::string::ToString;
 use anyhow::Result;
 use hmac::Hmac;
 use hmac::Mac;
-use hyper::{HeaderMap, Uri};
+use hyper::Uri;
 use sha2::Sha256;
 
-use crate::signing::signing_functions;
+use crate::signing::{signing_functions, SignedBody};
 
 use super::unverified_signed_request::ElementsToSign;
 
@@ -37,7 +37,7 @@ impl UrlSigner {
                     Some(headers) => Some(headers),
                     None => None,
                 },
-                req.body.is_some()
+                matches!(&req.body, SignedBody::Some(_)),
             )
         )
     }
@@ -46,8 +46,11 @@ impl UrlSigner {
         Ok(signing_functions::canonical_request(
             &req.method,
             &Uri::try_from(&self.url_no_signed(req))?,
-            &req.headers.clone().unwrap_or(HeaderMap::new()),
-            req.body.as_ref().unwrap_or(&String::new()),
+            &req.headers.clone().unwrap_or_default(),
+            match &req.body {
+                SignedBody::Some(v) => v,
+                _ => "",
+            },
         ))
     }
 
@@ -88,7 +91,7 @@ mod tests {
             datetime: PrimitiveDateTime::new(epoch.date(), epoch.time()),
             method: "POST".to_string(),
             headers: None,
-            body: None,
+            body: SignedBody::None,
         }
     }
 
